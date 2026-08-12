@@ -1,9 +1,32 @@
 spring:
   application:
     name: social-graph-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:cascade}}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: public
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Spring Boot 4 uses Jackson 3, while Spring Kafka's JsonSerializer currently targets
+      # Jackson 2. Serialize with Boot's Jackson 3 ObjectMapper in our publisher and send the
+      # resulting JSON string to Kafka to avoid carrying both major versions at runtime.
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 server:
   port: 8081
+
+cascade:
+  celebrity-threshold: ${CELEBRITY_THRESHOLD:10000}
+  follow-events-topic: ${FOLLOW_EVENTS_TOPIC:follow-events}
 
 management:
   endpoints:
