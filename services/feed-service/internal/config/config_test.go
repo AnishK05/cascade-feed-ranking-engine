@@ -8,7 +8,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("REDIS_ADDR", "")
 	t.Setenv("POST_SERVICE_ADDR", "")
 
-	cfg := Load()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
 
 	if cfg.GRPCPort != "9091" {
 		t.Errorf("GRPCPort = %q, want %q", cfg.GRPCPort, "9091")
@@ -27,9 +30,25 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("FEED_SERVICE_GRPC_PORT", "9999")
 
-	cfg := Load()
+	t.Setenv("FEED_CANDIDATE_POOL_SIZE", "321")
+	t.Setenv("FEED_RECENCY_HALF_LIFE", "8h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
 
 	if cfg.Addr() != ":9999" {
 		t.Errorf("Addr() = %q, want %q", cfg.Addr(), ":9999")
+	}
+	if cfg.CandidatePool != 321 || cfg.RecencyHalfLife.String() != "8h0m0s" {
+		t.Errorf("numeric overrides not loaded: %+v", cfg)
+	}
+}
+
+func TestLoadRejectsInvalidValues(t *testing.T) {
+	t.Setenv("FEED_POST_CACHE_TTL", "never")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid duration error")
 	}
 }
