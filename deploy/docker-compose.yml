@@ -1,0 +1,90 @@
+name: cascade
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cascade
+      POSTGRES_USER: cascade
+      POSTGRES_PASSWORD: cascade
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Mount only the up migrations: mounting migrations/ wholesale would also execute every
+      # *.down.sql file during PostgreSQL's first-boot initialization.
+      - ../migrations/000001_create_users_table.up.sql:/docker-entrypoint-initdb.d/001-users.sql:ro
+      - ../migrations/000002_create_follows_table.up.sql:/docker-entrypoint-initdb.d/002-follows.sql:ro
+      - ../migrations/000003_create_posts_table.up.sql:/docker-entrypoint-initdb.d/003-posts.sql:ro
+      - ../migrations/000004_create_engagements_table.up.sql:/docker-entrypoint-initdb.d/004-engagements.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cascade -d cascade"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      # One-node combined broker/controller KRaft cluster: real Apache Kafka, no ZooKeeper.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:29093,PLAINTEXT_HOST://:9092
+      # Containers use kafka:29092; host-native services/tests use localhost:9092.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ../scripts/kafka-init.sh:/opt/cascade/kafka-init.sh:ro
+    entrypoint: ["/bin/bash", "/opt/cascade/kafka-init.sh"]
+    restart: "no"
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:

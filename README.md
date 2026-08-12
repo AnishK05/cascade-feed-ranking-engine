@@ -11,9 +11,9 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0-3 are complete: repository bootstrap, schema migrations, the Java REST Social Graph
-Service, and the Go/gRPC Post Service. Phase 4 (Kafka backbone in Docker Compose) is next; both
-implemented services already publish their JSON events to a configurable real Kafka broker.
+Phases 0-5 are complete: repository/schema bootstrap, Social Graph and Post services, the
+single-node Apache Kafka KRaft backbone, and the hybrid fanout worker. Phase 6 (Feed Service
+read path, celebrity merge, and pagination) is next.
 
 ## Repository layout
 
@@ -58,6 +58,9 @@ make proto          # generate Go + Java stubs from proto/*.proto (do this befor
 make build          # generate stubs, then build every Go/Java service
 make test           # run the full test suite (Go, Java, Python) — mirrors CI
 make migrate-up      # apply all SQL migrations to $DATABASE_URL
+make up              # start PostgreSQL, Redis, and Kafka (KRaft; no ZooKeeper)
+make kafka-topics    # create/verify all application and DLQ topics
+make kafka-smoke     # create a temporary topic and prove produce -> consume
 ```
 
 `DATABASE_URL` defaults to `postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable`;
@@ -90,6 +93,27 @@ Implements `CreatePost`, batch `GetPosts`, and authorized soft-delete `DeletePos
 `POST_CACHE_TTL`, and `POST_SERVICE_GRPC_PORT`. Successful commits write/cache-invalidate Redis
 and publish keyed `PostCreated`/`PostDeleted` JSON events; `GetPosts` uses a batched Redis
 MGET/cache-aside path and one PostgreSQL query for misses.
+
+### Fanout Worker (`services/fanout-worker`)
+
+Consumes `post-events` and `follow-events` with manual offset commits. Normal-author posts are
+pipelined into each follower's bounded `timeline:{userId}` Redis ZSET; celebrity posts are
+written once to `celebrity_posts:global` for Phase 6's read-time merge. New normal follows
+backfill recent posts, while celebrity follows maintain `following:celebrities:{userId}`.
+Deletes add idempotent tombstones. Malformed events and retry-exhausted transient failures are
+published to the corresponding DLQ before the original offset is committed.
+
+Important Fanout Worker settings include `KAFKA_BROKERS`, `POST_EVENTS_TOPIC`,
+`FOLLOW_EVENTS_TOPIC`, both `*_DLQ_TOPIC` variables, `KAFKA_CONSUMER_GROUP`, `DATABASE_URL`,
+`REDIS_ADDR`, `CELEBRITY_FOLLOWER_THRESHOLD`, `MAX_TIMELINE_LEN`, `BACKFILL_COUNT`,
+`FANOUT_BATCH_SIZE`, `MAX_RETRIES`, and `RETRY_BACKOFF`.
+
+### Local Kafka backbone
+
+`deploy/docker-compose.yml` pins real `apache/kafka:4.3.1` in one-node combined
+broker/controller KRaft mode. Containers connect through `kafka:29092`; host-native services
+connect through `localhost:9092`. Topic auto-creation is disabled so configuration mistakes do
+not silently create misspelled topics; `kafka-init` explicitly creates the application topics.
 
 ### A note on generated code
 

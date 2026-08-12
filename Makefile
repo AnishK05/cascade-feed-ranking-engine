@@ -146,3 +146,11 @@ up: ## Start local infrastructure via Docker Compose.
 .PHONY: down
 down: ## Stop local infrastructure started via `make up`.
 	docker compose -f deploy/docker-compose.yml down
+
+.PHONY: kafka-topics
+kafka-topics: ## Create/verify the Kafka topics used by Cascade.
+	docker compose -f deploy/docker-compose.yml run --rm kafka-init
+
+.PHONY: kafka-smoke
+kafka-smoke: ## Prove a message can be produced and consumed through Compose Kafka.
+	./scripts/kafka-smoke.sh
