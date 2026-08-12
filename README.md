@@ -11,9 +11,9 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0-5 are complete: repository/schema bootstrap, Social Graph and Post services, the
-single-node Apache Kafka KRaft backbone, and the hybrid fanout worker. Phase 6 (Feed Service
-read path, celebrity merge, and pagination) is next.
+Phases 0-7 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
+KRaft, hybrid fanout, the Feed Service read path, and configurable heuristic ranking. Phase 8
+(cache invalidation/warming hardening) is next.
 
 ## Repository layout
 
@@ -114,6 +114,28 @@ Important Fanout Worker settings include `KAFKA_BROKERS`, `POST_EVENTS_TOPIC`,
 broker/controller KRaft mode. Containers connect through `kafka:29092`; host-native services
 connect through `localhost:9092`. Topic auto-creation is disabled so configuration mistakes do
 not silently create misspelled topics; `kafka-init` explicitly creates the application topics.
+
+### Feed Service (`services/feed-service`, gRPC port `9091`)
+
+Implements `GetFeed` from `proto/feed.proto`. It merges bounded normal timeline candidates with
+the global celebrity stream, filters celebrity posts to authors the viewer follows, removes
+tombstones and duplicates, then hydrates content with one Redis MGET plus at most one batched
+Post Service call. Missing cache values are warmed for subsequent reads.
+
+Ranking runs in-process over the bounded candidate pool:
+
+```text
+score = recency_weight * exp(-age / half_life)
+      + engagement_weight * log1p(likes + 2 * comments)
+      + affinity_weight * viewer_author_affinity
+```
+
+Engagement and 30-day affinity signals come from two batched PostgreSQL queries rather than
+N+1 lookups. Results use deterministic score/time/post-ID ordering and an opaque, validated
+keyset cursor. Configure the service with `FEED_SERVICE_GRPC_PORT`, `DATABASE_URL`,
+`REDIS_ADDR`, `POST_SERVICE_ADDR`, `FEED_CANDIDATE_POOL_SIZE`, page-size settings,
+`FEED_POST_CACHE_TTL`, the three `FEED_*_WEIGHT` variables, `FEED_RECENCY_HALF_LIFE`,
+`FEED_AFFINITY_WINDOW`, and `FEED_AFFINITY_DEFAULT`.
 
 ### A note on generated code
 

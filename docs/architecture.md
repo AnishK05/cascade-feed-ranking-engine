@@ -215,3 +215,30 @@ redelivery updates an existing member instead of duplicating it. Timeline trim c
 the same Redis pipeline/transaction as each add. Phase 5 directly reads the Social Graph
 Service's tables as the temporary coupling documented in §7.2 of the implementation plan;
 Phase 9.5 replaces that access with the paginated REST boundary.
+
+## Feed read path and ranking (Phases 6-7)
+
+`GetFeed` reads a bounded number of IDs from `timeline:{userId}` and
+`celebrity_posts:global` in one Redis pipeline. It reads the viewer's
+`following:celebrities:{userId}` set at the same time, checks all candidates against the global
+`tombstones` set in one `SMISMEMBER`, then hydrates the deduplicated IDs using one Redis MGET.
+All cache misses are sent in one `PostService.GetPosts` request and backfilled through a Redis
+pipeline. Celebrity candidates are retained only when their hydrated author is in the viewer's
+followed-celebrity set.
+
+The resulting candidate pool is scored in Feed Service's Go process—there is no ranking
+network hop:
+
+```text
+score(post, viewer) =
+      w_recency    * exp(-post_age / half_life)
+    + w_engagement * log1p(likes + 2 * comments)
+    + w_affinity   * viewer_author_affinity
+```
+
+One grouped PostgreSQL query loads engagement counts for every candidate, and a second grouped
+query loads the viewer's author-affinity counts over the configured window. Weights, half-life,
+window, and cold-start affinity are environment configuration. Ranking is deterministic:
+score descending, then creation time descending, then post ID descending. Pagination uses a
+versioned URL-safe base64 keyset cursor containing those same three sort fields, so page
+boundaries do not depend on an unstable offset.
