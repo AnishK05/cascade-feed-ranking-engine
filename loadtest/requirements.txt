@@ -1,0 +1,7 @@
+# Runtime dependencies for seeding data and running the load test (Phase 12-13).
+# Pinned loosely for now; exact versions get locked when the seeding/benchmark scripts land.
+locust>=2.31
+asyncpg>=0.29
+redis>=5.0
+numpy>=1.26
+faker>=25.0
