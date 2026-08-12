@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package cascade.post.v1;
+
+option go_package = "github.com/AnishK05/cascade-feed-ranking-engine/proto/gen/go/post/v1;postv1";
+option java_package = "com.cascade.proto.post.v1";
+option java_multiple_files = true;
+
+// PostService owns post content: creating, batch-reading, and deleting posts.
+// It is the source of truth for post data and publishes PostCreated/PostDeleted
+// events to Kafka after a successful Postgres commit (see IMPLEMENTATION_PLAN.md §5.1).
+service PostService {
+  // CreatePost writes a new post and returns its generated ID.
+  rpc CreatePost(CreatePostRequest) returns (CreatePostResponse);
+
+  // GetPosts batch-hydrates post content for a set of post IDs. This is the
+  // call Feed Service uses to fill Redis cache misses without an N+1 pattern.
+  rpc GetPosts(GetPostsRequest) returns (GetPostsResponse);
+
+  // DeletePost soft-deletes a post (see cache invalidation, §7.4).
+  rpc DeletePost(DeletePostRequest) returns (DeletePostResponse);
+}
+
+message CreatePostRequest {
+  int64 author_id = 1;
+  string content = 2;
+  string media_url = 3;
+}
+
+message CreatePostResponse {
+  int64 post_id = 1;
+  int64 created_at_unix_ms = 2;
+}
+
+message GetPostsRequest {
+  repeated int64 post_ids = 1;
+}
+
+message GetPostsResponse {
+  repeated Post posts = 1;
+}
+
+message Post {
+  int64 id = 1;
+  int64 author_id = 2;
+  string content = 3;
+  string media_url = 4;
+  int64 created_at_unix_ms = 5;
+}
+
+message DeletePostRequest {
+  int64 post_id = 1;
+  int64 requesting_user_id = 2;
+}
+
+message DeletePostResponse {
+  bool ok = 1;
+}
