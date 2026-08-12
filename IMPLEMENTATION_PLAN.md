@@ -1,6 +1,6 @@
 # Cascade — Real-Time Feed & Ranking System
 
-## Implementation Plan v1.0
+## Implementation Plan v2.0 (finalized)
 
 > Project: **Consumer Serving Infrastructure for Personalized Content Feeds**
 > Repo: `cascade-feed-ranking-engine`
@@ -9,8 +9,11 @@
 This document is the single source of truth for building the project. It is organized so
 you can work top-to-bottom, phase by phase, committing working software at the end of each
 phase. Every phase has: goals, concrete tasks, API/schema sketches, and a "Definition of Done"
-checklist. Read the **Open Questions** section (bottom) before starting Phase 0 — several
-decisions there change how early phases are built.
+checklist.
+
+**Status: finalized, ready to build.** All open design questions from v1.0 have been answered
+by the project owner; see the **Decisions Log** (§19) for the final call on each and where it
+changed the plan. Phase 0 can start immediately.
 
 ---
 
@@ -137,7 +140,7 @@ sequenceDiagram
         end
     else author is a celebrity
         FW->>RD: ZADD celebrity_posts score postId
-        Note over FW,RD: No per-follower fanout; merged at read time (fanout-on-read)
+        Note over FW,RD: No per-follower fanout - merged at read time via fanout-on-read
     end
 ```
 
@@ -175,7 +178,7 @@ cascade-feed-ranking-engine/
 ├── docs/
 │   ├── architecture.md               (diagrams above, kept in sync)
 │   ├── benchmarks/                   (dated benchmark result writeups)
-│   └── decisions/                    (ADRs — see §14.3)
+│   └── decisions/                    (ADRs — see §14.1)
 ├── proto/                            (shared .proto contracts)
 │   ├── post.proto
 │   └── feed.proto
@@ -253,7 +256,8 @@ CREATE INDEX idx_engagements_post ON engagements(post_id);
 schemas (`social` and `content`) rather than two physical databases — this avoids
 distributed-transaction problems while still teaching service *ownership* boundaries (each
 service only queries its own schema; cross-schema needs go through an API call or an event).
-The Fanout Worker is the one deliberate exception (§7.2) — flagged as an open question below.
+The Fanout Worker is the one deliberate, temporary exception (§7.2) — scheduled to be removed
+in Phase 9.5.
 
 ---
 
@@ -303,13 +307,16 @@ Key implementation details:
   (write-through) → publish to Kafka **after** the DB commit succeeds (never publish before
   commit — otherwise fanout can run against a post that doesn't exist yet if the insert then
   fails). Use the **transactional outbox pattern** if you want to be rigorous about
-  exactly-once publish semantics (stretch; see §9.3), otherwise a simple "commit then publish,
+  exactly-once publish semantics (stretch; see §9.1), otherwise a simple "commit then publish,
   log+alert on publish failure" is acceptable for this scope.
 - `GetPosts` is what lets Feed Service batch-hydrate cache misses without an N+1 query pattern.
 
 ### 5.2 Social Graph Service (Java Spring Boot) — `services/social-graph-service`
 
-Owns: `users`, `follows` tables. REST, not gRPC, by default (see Open Question Q2). Endpoints:
+Owns: `users`, `follows` tables. **Decision: REST only for core scope** — polyglot gRPC (a Go
+client calling a Java gRPC server via `grpc-spring-boot-starter`) is explicitly a stretch goal,
+not required, since the core learning value here is the Spring Boot CRUD/REST piece, not
+Java-side gRPC. Endpoints:
 
 ```
 POST   /users                          create a (simulated) user
@@ -422,8 +429,10 @@ The only service the frontend talks to directly. Responsibilities:
 - Terminates HTTP/JSON from Next.js, translates to gRPC calls to Post/Feed Service and REST
   calls to Social Graph Service.
 - Simple auth stub: a header (`X-User-Id`) or short-lived signed cookie identifying "which
-  simulated user is this browser session acting as" — **not** real authentication (see Open
-  Question Q4).
+  simulated user is this browser session acting as" — **not** real authentication. **Decision:
+  confirmed out of scope** — a real auth flow (e.g. Spring Security + JWT) would not teach any
+  of this project's core concepts (fanout, caching, ranking) and is not worth the time it would
+  take away from those.
 - Request aggregation: e.g. `GET /api/feed` calls Feed Service, then may need to call Social
   Graph Service to hydrate author display names/avatars if Feed Service only returns
   `author_id` (keep Feed Service's response lean — it's the hot path).
@@ -441,8 +450,9 @@ The only service the frontend talks to directly. Responsibilities:
 | `post-events.dlq` | `author_id` | 3 | Fanout Worker (on failure) | manual inspection / replay tool |
 | `engagement-events` (stretch, §8.4) | `post_id` | 6 | Gateway or Post Service | Ranking pipeline (Python, offline) |
 
-Event schemas (JSON to start; Protobuf/Avro + Schema Registry is a good stretch goal once the
-JSON version works — don't start there, it's a distraction from the core lessons):
+Event schemas: **decision — plain JSON payloads**, confirmed for the full core scope (not just
+a starting point). Protobuf/Avro + Schema Registry remains listed as a stretch goal only, since
+it adds real setup cost for no core-lesson benefit here:
 
 ```json
 // post-events
@@ -454,10 +464,32 @@ JSON version works — don't start there, it's a distraction from the core lesso
 { "eventType": "FollowDeleted", "followerId": 9, "followeeId": 45, "deletedAtUnixMs": 1732400500000 }
 ```
 
-Local dev: run Kafka in **KRaft mode** (no ZooKeeper) via the official `apache/kafka` Docker
-image — this matches the resume's "Apache Kafka" claim literally, avoids an extra ZooKeeper
-container, and is the modern way to run Kafka anyway (post-3.x). See Open Question Q1 for the
-Redpanda alternative.
+Local dev: **decision — real Apache Kafka, single Docker container, KRaft mode (no
+ZooKeeper)**, via the official `apache/kafka` image (`apache/kafka:latest`, or pin a specific
+version tag, e.g. `apache/kafka:3.8.0`). This matches the resume's "Apache Kafka" claim
+literally, avoids running a separate ZooKeeper container, and is the standard way to run modern
+(post-3.x) Kafka. Minimal single-node KRaft setup for `deploy/docker-compose.yml`:
+
+```yaml
+kafka:
+  image: apache/kafka:3.8.0
+  environment:
+    KAFKA_NODE_ID: 1
+    KAFKA_PROCESS_ROLES: broker,controller
+    KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+    KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  ports:
+    - "9092:9092"
+```
+
+Redpanda was considered as a lighter-weight, Kafka-API-compatible alternative but was rejected
+for this project specifically because the resume claim is "Apache Kafka" — using the real thing
+keeps that claim literally true and defensible in an interview.
 
 ---
 
@@ -477,7 +509,7 @@ Redpanda alternative.
 ### 7.2 Fanout-worker → Postgres access
 
 The Fanout Worker needs follower lists at write time. Two implementation options — pick one
-explicitly and write down why in an ADR (§14.3):
+explicitly and write down why in an ADR (§14.1):
 
 - **(a) Direct read of the `follows` table** (same Postgres instance, different schema). Fast,
   simple, no cross-service network hop in a latency-sensitive-ish batch path. Downside: breaks
@@ -488,11 +520,19 @@ explicitly and write down why in an ADR (§14.3):
   round-trips and makes the Fanout Worker's throughput depend on the Social Graph Service's
   availability/latency.
 
-**Recommendation for this project:** start with (a) for simplicity while you get the fanout
-pipeline working end-to-end, then refactor to (b) once the rest of the system works, purely as
-a learning exercise in how to peel apart a shared-database anti-pattern into a real service
-boundary. Document the before/after in an ADR — this refactor story is genuinely good resume
-material on its own ("identified and removed a shared-database coupling between services").
+**Decision: start with (a), then deliberately refactor to (b) as its own scheduled task, not an
+optional stretch goal.** Build the fanout pipeline against direct Postgres access first (Phase
+5) so you can get the core fanout-on-write mechanics working end-to-end without a cross-service
+dependency in the way. Once the Social Graph Service's REST API exists and is stable (after
+Phase 9), come back and refactor the Fanout Worker to call
+`GET /users/{id}/followers?cursor=&limit=` instead of querying `follows` directly. This is
+scheduled explicitly as part of **Phase 9.5** (see the updated roadmap in §15) rather than left
+as a someday-maybe stretch goal, because the *refactor itself* — identifying a shared-database
+coupling and replacing it with a real service boundary, then re-measuring fanout throughput
+before/after to confirm the added network hop didn't regress it unacceptably — is one of the
+best, most concrete resume/interview stories in this whole project ("found and removed an
+implicit coupling between two services that shared a database, and validated the fix didn't
+hurt fanout latency"). Write the before/after comparison up as an ADR (§14.1).
 
 ### 7.3 Cache warming
 
@@ -556,12 +596,18 @@ score(post, viewer) =
 - Weights (`w_recency`, `w_engagement`, `w_affinity`) live in a config file, hot-reloadable
   ideally, so you can demo "turning the ranking knobs" live without a redeploy.
 - Log the score breakdown per request behind a debug flag — useful for the frontend's
-  "why am I seeing this post" debug view (nice demo feature, §11.2).
+  "why am I seeing this post" debug view (nice demo feature, §10 item 2).
 
-### 8.2 v2 (stretch): Python-trained model
+### 8.2 v2 (explicitly out of core scope — not this project's intent)
 
-If you want the ML angle, treat it as an **offline** step, not an online service call (keeping
-Python out of the hot path preserves your latency numbers):
+**Decision: not part of the core project.** The heuristic scoring in §8.1 is the intended
+final state of the ranking layer — this project is about *ranking infrastructure* (candidate
+generation, merging, applying a scoring function fast, at read time), not about building a good
+ML model. The subsection below is kept only as an optional stretch idea if you finish
+everything else and specifically want ML practice later; skip it entirely for the core build.
+
+If you ever do pick this up, treat it as an **offline** step, not an online service call
+(keeping Python out of the hot path preserves your latency numbers):
 1. `ranking/generate_synthetic_engagements.py`: since there's no real user behavior, generate
    plausible synthetic engagement data with intentional signal (e.g. users engage more with
    recent posts, more with authors they already engage with, engagement decays with content
@@ -622,7 +668,7 @@ the whole point of doing fanout asynchronously via Kafka rather than synchronous
      demo: kill the Redis container mid-benchmark and show the system degrade gracefully
      instead of falling over.
   3. Post Service commits to Postgres but crashes before publishing to Kafka → post exists but
-     never gets fanned out. Mitigate with the transactional outbox pattern (stretch, §9.3) or,
+     never gets fanned out. Mitigate with the transactional outbox pattern (stretch, §9.1) or,
      minimally, a periodic reconciliation job that finds posts with no corresponding fanout
      record and re-publishes.
   4. Fanout Worker falls behind (consumer lag grows) under a burst of celebrity/viral activity
@@ -761,11 +807,13 @@ you can confidently defend for 10 minutes in an interview.
 
 ---
 
-## 14. Kubernetes (stretch, do last) — `deploy/k8s/`
+## 14. Kubernetes (local only, do last) — `deploy/k8s/`
 
-Given the undergrad scope, treat Kubernetes as a **deployment-target learning exercise on a
-local `kind`/`minikube` cluster**, not as infrastructure you need for the core project to be
-complete. Suggested scope:
+**Decision: local `kind`/`minikube` only — no managed cloud Kubernetes (EKS/GKE/AKS), and no
+cloud deployment of any kind for this project.** Kubernetes here is purely a
+deployment/scaling **learning exercise run entirely on your own machine**, not infrastructure
+the core project depends on, and not something that should incur any cloud cost. Suggested
+scope:
 - A Deployment + Service per microservice, ConfigMaps for the ranking weights/celebrity
   threshold, Secrets for DB credentials.
 - A `HorizontalPodAutoscaler` on Feed Service keyed on CPU (or, better, a custom metric like
@@ -805,16 +853,19 @@ sequencing and risk, not a schedule).
 | 7 | Ranking v1 (heuristic) | 6 | Medium | Reordering is visibly different from pure chronological on a dataset with varied engagement counts; weights configurable without code changes |
 | 8 | Cache invalidation + warming (tombstones, new-follow backfill, cold-start warm script) | 5,6 | Medium | Deleting a post makes it disappear from feeds within one read cycle; a brand-new follow immediately shows the followee's recent posts |
 | 9 | Gateway/BFF (Spring Boot) + auth stub | 3,6,2 | Medium | Frontend can hit one base URL for everything; `X-User-Id` correctly threads through to per-user feed/personalization |
+| 9.5 | **Service-boundary refactor:** Fanout Worker switches from direct `follows` table access to calling Social Graph Service's paginated `/users/{id}/followers` REST endpoint (§7.2) | 5,9 | Medium | Fanout Worker no longer holds a DB connection/credentials for the `social` schema; fanout throughput re-measured post-refactor and compared to pre-refactor baseline; ADR written under `docs/decisions/` documenting the before/after |
 | 10 | Frontend (Next.js) | 9 | Medium | Can create a post as User A, switch to User B (a follower), and see it appear after a short delay; admin metrics page renders live numbers |
 | 11 | Observability (Prometheus/Grafana, structured logs, request IDs) | 3,5,6,9 | Medium | Grafana dashboard shows live req/sec + latency percentiles during a manual burst of requests |
 | 12 | Load testing & benchmarking (Python/Locust) | 6,8,11 | High | Reproducible before/after cache benchmark write-up committed under `docs/benchmarks/`, with real measured numbers |
 | 13 | Full Docker Compose integration ("one command up") | all above | Low-Medium | `make up` brings up the entire stack from a clean checkout; smoke test script exercises create-post → fanout → feed-read end to end |
-| 14 | Kubernetes (stretch) | 13 | High | Same smoke test passes against a `kind` cluster; HPA scales Feed Service replicas observably under the Phase 12 load profile |
-| 15 | Hardening: unit/integration test coverage pass, ADRs written, final README + architecture doc polish, capture final resume numbers | 12,13 | Medium | README explains how to run everything and links the final benchmark write-up; resume bullet updated with your own measured numbers |
+| 14 | Kubernetes on a local `kind` cluster only — **no cloud deployment** | 13 | High | Same smoke test passes against a local `kind` cluster; HPA scales Feed Service replicas observably under the Phase 12 load profile; no managed cloud k8s (EKS/GKE/AKS) is provisioned, and this phase incurs no cloud cost |
+| 15 | Hardening: unit/integration test coverage pass, ADRs written, final README + architecture doc polish, capture final resume numbers | 9.5,12,13 | Medium | README explains how to run everything and links the final benchmark write-up; resume bullet updated with your own measured numbers |
 
 Stretch goals (do only if the above feels solid and you want more): transactional outbox
 (§9.1), Protobuf/Avro + Schema Registry for Kafka payloads, real engagement-driven affinity
-(§8.4), OpenTelemetry tracing, ML ranking model (§8.2), chaos testing in k8s (§14).
+(§8.4), OpenTelemetry tracing, an ML-trained ranking model (§8.2 — explicitly deprioritized per
+project owner; not the intended focus of this project), gRPC on Social Graph Service (§5.2),
+and chaos testing in k8s (§14).
 
 ---
 
@@ -841,8 +892,8 @@ Stretch goals (do only if the above feels solid and you want more): transactiona
 This is not a production system and should not pretend to be one — but say so explicitly
 rather than silently skipping security, since "here's what I deliberately scoped out and why"
 is itself a good engineering statement:
-- No real authentication/authorization (§ Open Question Q4) — the `X-User-Id` header is
-  trivially spoofable by design, for demo convenience. Document this loudly in the README.
+- No real authentication/authorization (confirmed decision — see §19) — the `X-User-Id` header
+  is trivially spoofable by design, for demo convenience. Document this loudly in the README.
 - Basic input validation on all public endpoints (content length limits, required fields) to
   avoid the demo breaking on garbage input, not as a security boundary.
 - Don't commit real secrets; use `.env` files (git-ignored) + `.env.example` committed, and
@@ -871,54 +922,21 @@ is itself a good engineering statement:
 
 ---
 
-## 19. Open Questions For You (please answer before/while starting Phase 0)
+## 19. Decisions Log
 
-These are the decisions in this plan with more than one reasonable answer. Defaults are stated
-throughout the doc above; flip any of them if you'd prefer differently.
+All open questions from v1.0 of this plan have been answered by the project owner. This is the
+final record of each call and where it's reflected in the plan above. **No further decisions
+are pending — the plan is finalized and ready to build starting at Phase 0.**
 
-1. **Kafka vs Redpanda for local dev.** The plan defaults to real Apache Kafka (KRaft mode,
-   single Docker container, no ZooKeeper) so the resume's "Apache Kafka" claim is literally
-   true. Redpanda is Kafka-API-compatible, lighter-weight, and arguably easier to run locally,
-   but then your resume/interview story is technically "Kafka-compatible," not Kafka. **Do you
-   want to keep real Kafka, or are you fine calling it "Kafka-compatible messaging" and using
-   Redpanda for a smoother local dev experience?**
-2. **Should Social Graph Service (Java) expose gRPC, or REST only?** The plan defaults to REST
-   for Social Graph Service (simpler Spring Boot setup) with the Gateway translating to the
-   frontend, and gRPC reserved for the Go↔Go hot path (Post/Feed Service) plus Gateway→Go
-   calls. This still uses gRPC meaningfully but skips server-side gRPC in Java. **If you want
-   more hands-on polyglot-gRPC practice (a Go client calling a Java gRPC server via
-   `grpc-spring-boot-starter`), say so and we'll add it as a Phase 2 requirement rather than a
-   stretch goal.**
-3. **Fanout Worker's data access pattern.** §7.2 recommends starting with direct Postgres
-   access to the `follows` table (fast, simple, but couples services via a shared schema),
-   then refactoring to a REST call against Social Graph Service later as a deliberate learning
-   exercise. **Are you fine with that two-step approach, or would you rather enforce the
-   service boundary strictly from Phase 5 onward, accepting the added complexity earlier?**
-4. **Auth.** The plan defaults to a spoofable `X-User-Id` header/cookie "user switcher" with no
-   real authentication, since implementing real auth doesn't teach any of this project's core
-   concepts and would eat time better spent on fanout/caching/ranking. **Confirm this is fine,
-   or let me know if you specifically want a real auth flow (e.g. Spring Security + JWT) as
-   part of the core scope rather than an explicitly-out-of-scope simplification.**
-5. **Ranking model depth.** §8.1 (heuristic scoring in Go) is the default core scope; §8.2
-   (Python-trained logistic regression feeding weights into Go) is framed as a stretch goal.
-   **Do you want the ML-training angle (Python scikit-learn model) pulled into core scope from
-   the start, given Python is explicitly in your tech stack list, or is it fine as a stretch
-   goal with Python's core-scope role being data seeding + load testing (§12-13)?**
-6. **Kubernetes depth.** §14 treats k8s as a final, stretch-ish phase on a local `kind` cluster
-   purely for the deployment/scaling learning experience, not as infra the "real" project
-   depends on. **Is local `kind` sufficient, or do you want to actually deploy to a managed
-   cloud k8s (EKS/GKE/AKS) at some point — which would add cost and cloud-account setup as a
-   prerequisite worth planning for explicitly?**
-7. **Resume numbers.** The plan explicitly avoids pre-committing to "50,000 users / 8,000
-   req/s / 80% reduction" as targets to hit, and instead treats Phase 12-13 as the process that
-   produces your *real* measured numbers (which might be higher or lower depending on your
-   dev machine/cloud resources). **Confirm you're fine updating the resume bullet with actual
-   measured numbers once benchmarking is done, rather than engineering toward these specific
-   numbers as a requirement.**
-8. **Schema Registry / Protobuf-on-Kafka.** §6 defaults to plain JSON event payloads for
-   simplicity, with Avro/Protobuf + Schema Registry mentioned only as a stretch goal.
-   **Fine to defer, or do you want binary schemas from day one (more setup cost, more
-   "production-grade" story for the resume)?**
+| # | Question | Decision | Where it's reflected |
+|---|---|---|---|
+| 1 | Kafka vs Redpanda for local dev | **Real Apache Kafka**, single Docker container, KRaft mode, no ZooKeeper | §6 (topic table + Compose snippet) |
+| 2 | Should Social Graph Service (Java) expose gRPC, or REST only? | **REST only for core scope.** Polyglot gRPC (Go client → Java gRPC server) is a stretch goal only | §5.2, §15 stretch goals |
+| 3 | Fanout Worker's data access pattern | **Start with direct Postgres access (Phase 5); explicitly refactor to a REST call against Social Graph Service as its own scheduled task (Phase 9.5)**, not left as an optional someday-maybe stretch goal | §7.2, §15 roadmap (Phase 9.5) |
+| 4 | Auth scope | **Confirmed out of core scope.** Spoofable `X-User-Id` header/cookie "user switcher," no real authentication | §5.5, §17 |
+| 5 | Ranking model depth (ML) | **Confirmed out of core scope — not the intent of this project.** Heuristic scoring (§8.1) is the final state of the ranking layer; the Python-trained model (§8.2) is kept only as an optional idea for later, unscheduled | §8.2, §15 stretch goals |
+| 6 | Kubernetes / cloud deployment | **Local `kind`/`minikube` only. No managed cloud Kubernetes, no cloud deployment of any kind, no cloud cost.** | §14, §15 (Phase 14) |
+| 7 | Resume numbers | **Confirmed.** Phase 12-13's benchmark protocol produces the real numbers that go into the resume bullet — not pre-set targets to engineer toward | §1.1, §13 |
+| 8 | Schema Registry / Protobuf-on-Kafka | **Plain JSON event payloads for the full core scope**, not just a starting point. Binary schemas remain a stretch goal only | §6 |
 
-Once you've made calls on these (or told me to just use the stated defaults), Phase 0 can
-start immediately — nothing above blocks scaffolding the repo structure, proto files, and CI.
+Nothing above blocks starting Phase 0 immediately.
