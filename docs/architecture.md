@@ -193,3 +193,25 @@ make migrate-create name=add_something               # scaffold a new migration 
 
 `DATABASE_URL` defaults to `postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable`
 (see the root `Makefile`); override it for other environments.
+
+## Fanout Worker reliability and Redis keys (Phase 5)
+
+The worker consumes `post-events` and `follow-events` with Kafka auto-commit disabled. It polls
+one record at a time, processes it, synchronously commits that exact offset, then permits a
+rebalance. Transient processing failures receive bounded retry/backoff; permanent parse or
+validation failures go directly to the topic's DLQ. A poison record is committed only after
+the original key/value and failure metadata have been durably produced to the DLQ.
+
+| Key | Type | Phase 5 behavior |
+|---|---|---|
+| `timeline:{userId}` | ZSET | Normal posts and new-follow backfill; member is post ID, score is creation time; bounded by `MAX_TIMELINE_LEN` |
+| `celebrity_posts:global` | ZSET | One write per celebrity post, regardless of follower count |
+| `following:celebrities:{userId}` | SET | Celebrity followees merged into the feed at read time |
+| `fanout:follower_count:{authorId}` | STRING | Short-lived count cache, invalidated by follow events |
+| `tombstones` | SET | Deleted post IDs filtered from cached timelines |
+
+Redis `ZADD` and `SADD` operations are intentionally idempotent: Kafka's at-least-once
+redelivery updates an existing member instead of duplicating it. Timeline trim commands run in
+the same Redis pipeline/transaction as each add. Phase 5 directly reads the Social Graph
+Service's tables as the temporary coupling documented in §7.2 of the implementation plan;
+Phase 9.5 replaces that access with the paginated REST boundary.
