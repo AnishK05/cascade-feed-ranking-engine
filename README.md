@@ -11,8 +11,9 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phase 0 (repo bootstrap) and Phase 1 (schema + migrations) are complete. See the roadmap in
-`IMPLEMENTATION_PLAN.md` §15 for what's next.
+Phases 0-3 are complete: repository bootstrap, schema migrations, the Java REST Social Graph
+Service, and the Go/gRPC Post Service. Phase 4 (Kafka backbone in Docker Compose) is next; both
+implemented services already publish their JSON events to a configurable real Kafka broker.
 
 ## Repository layout
 
@@ -34,7 +35,7 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
 
 ## Prerequisites
 
-- Go 1.23+ (a `go.work` ties the Go modules together — see below)
+- Go 1.25+ (a `go.work` ties the Go modules together — see below)
 - Java 21+ and the checked-in Maven Wrapper (`./mvnw`, no local Maven install required)
 - `protoc` (the Protocol Buffers compiler) on your `PATH`, plus the Go plugins:
   ```bash
@@ -63,6 +64,33 @@ make migrate-up      # apply all SQL migrations to $DATABASE_URL
 override it by exporting `DATABASE_URL` or passing it inline, e.g.
 `make migrate-up DATABASE_URL=postgres://...`.
 
+## Implemented service APIs
+
+### Social Graph Service (`services/social-graph-service`, port `8081`)
+
+```text
+POST   /users
+GET    /users/{id}
+POST   /follows
+DELETE /follows/{followerId}/{followeeId}
+GET    /users/{id}/followers?cursor=&limit=
+GET    /users/{id}/following?cursor=&limit=
+GET    /internal/celebrities
+```
+
+It uses `DATABASE_URL` as a JDBC URL (or `DB_HOST`/`DB_PORT`/`DB_NAME`), `DB_USER`,
+`DB_PASSWORD`, `KAFKA_BOOTSTRAP_SERVERS`, `FOLLOW_EVENTS_TOPIC`, and
+`CELEBRITY_THRESHOLD`. Follow/unfollow updates the denormalized follower count and celebrity
+flag in the same transaction, then publishes `FollowCreated`/`FollowDeleted` JSON after commit.
+
+### Post Service (`services/post-service`, gRPC port `9090`)
+
+Implements `CreatePost`, batch `GetPosts`, and authorized soft-delete `DeletePost` from
+`proto/post.proto`. It uses `DATABASE_URL`, `REDIS_ADDR`, `KAFKA_BROKERS`, `KAFKA_TOPIC`,
+`POST_CACHE_TTL`, and `POST_SERVICE_GRPC_PORT`. Successful commits write/cache-invalidate Redis
+and publish keyed `PostCreated`/`PostDeleted` JSON events; `GetPosts` uses a batched Redis
+MGET/cache-aside path and one PostgreSQL query for misses.
+
 ### A note on generated code
 
 Generated protobuf/gRPC stubs (`proto/gen/go/**/*.pb.go`, and the Java sources under each Maven
@@ -75,7 +103,8 @@ before building or testing the Go modules directly.
 The Go modules (`proto/gen/go`, `services/post-service`, `services/feed-service`,
 `services/fanout-worker`) are tied together with a `go.work` file at the repo root. This lets
 each service resolve the generated proto module (`proto/gen/go`) from the local filesystem
-during development, without needing a `replace` directive in every `go.mod` or a real published
-module. Build/test Go code from the repo root using explicit paths (`go build ./services/...`),
-not a bare `./...`, since the repo root itself isn't a Go module — or just use the `make`
-targets, which already do this correctly.
+during development instead of needing a real published module. Some service modules also carry
+an explicit local `replace` so they remain buildable when invoked directly. Build/test Go code
+from the repo root using explicit paths (`go build ./services/...`), not a bare `./...`, since
+the repo root itself isn't a Go module — or just use the `make` targets, which already do this
+correctly.
