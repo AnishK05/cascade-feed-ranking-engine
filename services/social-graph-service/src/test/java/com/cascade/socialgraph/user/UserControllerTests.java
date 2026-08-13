@@ -76,6 +76,16 @@ class UserControllerTests {
   }
 
   @Test
+  void listsUsersWhenIdsOmitted() throws Exception {
+    when(userService.list(50))
+        .thenReturn(List.of(new UserResponse(1, "alice", "Alice", false, 0, OffsetDateTime.now())));
+
+    mvc.perform(get("/users"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].username").value("alice"));
+  }
+
+  @Test
   void mapsDuplicateUsernameTo409() throws Exception {
     when(userService.create(any())).thenThrow(new ConflictException("Username already exists"));
 

@@ -47,6 +47,9 @@ class FeedControllerTests {
                         .setContent("hello")
                         .setCreatedAtUnixMs(100)
                         .setRankScore(1.5)
+                        .setRecencyScore(0.5)
+                        .setEngagementScore(0.7)
+                        .setAffinityScore(0.3)
                         .build())
                 .setNextPageToken("next")
                 .build());
@@ -58,6 +61,9 @@ class FeedControllerTests {
         .andExpect(jsonPath("$.items[0].postId").value(11))
         .andExpect(jsonPath("$.items[0].author.username").value("bob"))
         .andExpect(jsonPath("$.items[0].author.celebrity").value(true))
+        .andExpect(jsonPath("$.items[0].recencyScore").value(0.5))
+        .andExpect(jsonPath("$.items[0].engagementScore").value(0.7))
+        .andExpect(jsonPath("$.items[0].affinityScore").value(0.3))
         .andExpect(jsonPath("$.nextPageToken").value("next"));
 
     verify(feedClient).getFeed(7, null, 0);

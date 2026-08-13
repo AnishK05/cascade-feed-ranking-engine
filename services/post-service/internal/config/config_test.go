@@ -40,6 +40,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TombstoneTTL != 24*time.Hour {
 		t.Errorf("TombstoneTTL = %s, want 24h", cfg.TombstoneTTL)
 	}
+	if cfg.MetricsAddr != ":9100" {
+		t.Errorf("MetricsAddr = %q, want :9100", cfg.MetricsAddr)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {

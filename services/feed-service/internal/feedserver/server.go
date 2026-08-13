@@ -10,6 +10,7 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"time"
 
 	feedv1 "github.com/AnishK05/cascade-feed-ranking-engine/proto/gen/go/feed/v1"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/cursor"
@@ -23,7 +24,7 @@ type CandidateStore interface {
 }
 
 type Hydrator interface {
-	Hydrate(context.Context, []int64) (map[int64]feed.Post, error)
+	Hydrate(context.Context, []int64) (map[int64]feed.Post, int, int, error)
 }
 
 type SignalProvider interface {
@@ -34,6 +35,10 @@ type Ranker interface {
 	Rank([]feed.Post, map[int64]feed.Signal) []feed.RankedPost
 }
 
+type Metrics interface {
+	ObserveGetFeed(duration time.Duration, hits, misses int)
+}
+
 // Server implements feedv1.FeedServiceServer.
 type Server struct {
 	feedv1.UnimplementedFeedServiceServer
@@ -41,6 +46,7 @@ type Server struct {
 	hydrator        Hydrator
 	signals         SignalProvider
 	ranker          Ranker
+	metrics         Metrics
 	candidatePool   int
 	defaultPageSize int32
 	maxPageSize     int32
@@ -52,6 +58,7 @@ func New(
 	hydrator Hydrator,
 	signals SignalProvider,
 	ranker Ranker,
+	metrics Metrics,
 	candidatePool int,
 	defaultPageSize, maxPageSize int32,
 	logger *slog.Logger,
@@ -61,12 +68,13 @@ func New(
 	}
 	return &Server{
 		candidates: candidates, hydrator: hydrator, signals: signals, ranker: ranker,
-		candidatePool: candidatePool, defaultPageSize: defaultPageSize,
+		metrics: metrics, candidatePool: candidatePool, defaultPageSize: defaultPageSize,
 		maxPageSize: maxPageSize, logger: logger,
 	}
 }
 
 func (s *Server) GetFeed(ctx context.Context, req *feedv1.GetFeedRequest) (*feedv1.GetFeedResponse, error) {
+	started := time.Now()
 	if req == nil || req.GetUserId() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "user_id must be positive")
 	}
@@ -88,19 +96,19 @@ func (s *Server) GetFeed(ctx context.Context, req *feedv1.GetFeedRequest) (*feed
 
 	candidates, err := s.candidates.Load(ctx, req.GetUserId(), s.candidatePool)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "candidate dependency failed", "user_id", req.GetUserId(), "error", err)
+		s.logger.ErrorContext(ctx, "candidate dependency failed", "user_id", req.GetUserId(), "error", err, "request_id", requestID(ctx))
 		return nil, status.Error(codes.Unavailable, "candidate store unavailable")
 	}
 	allIDs := mergeIDs(candidates.NormalIDs, candidates.CelebrityIDs)
-	hydrated, err := s.hydrator.Hydrate(ctx, allIDs)
+	hydrated, hits, misses, err := s.hydrator.Hydrate(ctx, allIDs)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "post hydration dependency failed", "user_id", req.GetUserId(), "error", err)
+		s.logger.ErrorContext(ctx, "post hydration dependency failed", "user_id", req.GetUserId(), "error", err, "request_id", requestID(ctx))
 		return nil, status.Error(codes.Unavailable, "post hydration unavailable")
 	}
 	posts := selectPosts(candidates, hydrated, s.candidatePool)
 	loadedSignals, err := s.signals.Load(ctx, req.GetUserId(), posts)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "ranking signal database failed", "user_id", req.GetUserId(), "error", err)
+		s.logger.ErrorContext(ctx, "ranking signal database failed", "user_id", req.GetUserId(), "error", err, "request_id", requestID(ctx))
 		return nil, status.Error(codes.Internal, "ranking signals unavailable")
 	}
 	ranked := s.ranker.Rank(posts, loadedSignals)
@@ -115,17 +123,25 @@ func (s *Server) GetFeed(ctx context.Context, req *feedv1.GetFeedRequest) (*feed
 		response.Items = append(response.Items, &feedv1.FeedItem{
 			PostId: item.ID, AuthorId: item.AuthorID, Content: item.Content,
 			MediaUrl: item.MediaURL, CreatedAtUnixMs: item.CreatedAt.UnixMilli(),
-			RankScore: item.Score,
+			RankScore: item.Score, RecencyScore: item.Recency,
+			EngagementScore: item.Engagement, AffinityScore: item.Affinity,
 		})
 	}
 	if end < len(ranked) && end > start {
 		last := ranked[end-1]
 		response.NextPageToken, err = cursor.Encode(last.Score, last.CreatedAt.UnixMilli(), last.ID)
 		if err != nil {
-			s.logger.ErrorContext(ctx, "encode page cursor", "error", err)
+			s.logger.ErrorContext(ctx, "encode page cursor", "error", err, "request_id", requestID(ctx))
 			return nil, status.Error(codes.Internal, "encode pagination cursor")
 		}
 	}
+	if s.metrics != nil {
+		s.metrics.ObserveGetFeed(time.Since(started), hits, misses)
+	}
+	s.logger.InfoContext(ctx, "served feed",
+		"user_id", req.GetUserId(), "items", len(response.Items),
+		"cache_hits", hits, "cache_misses", misses, "request_id", requestID(ctx),
+	)
 	return response, nil
 }
 
@@ -196,4 +212,21 @@ func pageStart(ranked []feed.RankedPost, value *cursor.Cursor) int {
 		}
 	}
 	return len(ranked)
+}
+
+func requestID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if value, ok := ctx.Value(requestIDKey{}).(string); ok {
+		return value
+	}
+	return ""
+}
+
+type requestIDKey struct{}
+
+// WithRequestID stores a request ID on the context for structured logs.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, id)
 }

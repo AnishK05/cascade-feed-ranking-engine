@@ -18,6 +18,7 @@ import (
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/config"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/feedserver"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/hydrator"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/observability"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/ranking"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/signals"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,7 +71,15 @@ func main() {
 	}
 	defer lis.Close()
 
-	grpcServer := grpc.NewServer()
+	metrics := observability.NewMetrics()
+	metricsServer := observability.ServeMetrics(cfg.MetricsAddr, logger)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = metricsServer.Shutdown(shutdownCtx)
+	}()
+
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(observability.UnaryServerInterceptor(logger)))
 	feedv1.RegisterFeedServiceServer(grpcServer, feedserver.New(
 		candidate.NewRedis(redisClient),
 		hydrator.NewRedisPost(redisClient, postv1.NewPostServiceClient(postConn), cfg.CacheTTL),
@@ -79,7 +88,7 @@ func main() {
 			Recency: cfg.RecencyWeight, Engagement: cfg.EngagementWeight,
 			Affinity: cfg.AffinityWeight, HalfLife: cfg.RecencyHalfLife,
 		}),
-		cfg.CandidatePool, cfg.DefaultPageSize, cfg.MaxPageSize, logger,
+		metrics, cfg.CandidatePool, cfg.DefaultPageSize, cfg.MaxPageSize, logger,
 	))
 
 	serveErr := make(chan error, 1)

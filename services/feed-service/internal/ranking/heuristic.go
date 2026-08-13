@@ -34,12 +34,13 @@ func (h *Heuristic) Rank(posts []feed.Post, signals map[int64]feed.Signal) []fee
 			age = 0
 		}
 		signal := signals[post.ID]
-		recency := math.Exp(-float64(age) / float64(h.weights.HalfLife))
-		engagement := math.Log1p(float64(signal.Likes + 2*signal.Comments))
-		score := h.weights.Recency*recency +
-			h.weights.Engagement*engagement +
-			h.weights.Affinity*signal.Affinity
-		result = append(result, feed.RankedPost{Post: post, Score: score})
+		recency := h.weights.Recency * math.Exp(-float64(age)/float64(h.weights.HalfLife))
+		engagement := h.weights.Engagement * math.Log1p(float64(signal.Likes+2*signal.Comments))
+		affinity := h.weights.Affinity * signal.Affinity
+		result = append(result, feed.RankedPost{
+			Post: post, Score: recency + engagement + affinity,
+			Recency: recency, Engagement: engagement, Affinity: affinity,
+		})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Score != result[j].Score {

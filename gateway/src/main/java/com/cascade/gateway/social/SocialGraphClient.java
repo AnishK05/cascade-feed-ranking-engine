@@ -11,6 +11,8 @@ public interface SocialGraphClient {
 
   List<UserView> getUsers(Collection<Long> ids);
 
+  List<UserView> listUsers(int limit);
+
   FollowView follow(long followerId, long followeeId);
 
   void unfollow(long followerId, long followeeId);

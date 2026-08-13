@@ -25,6 +25,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DatabaseURL == "" || cfg.RedisAddr == "" || cfg.PostServiceAddr == "" {
 		t.Error("all address fields should have non-empty defaults")
 	}
+	if cfg.MetricsAddr != ":9101" {
+		t.Errorf("MetricsAddr = %q, want :9101", cfg.MetricsAddr)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {

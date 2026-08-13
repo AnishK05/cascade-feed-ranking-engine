@@ -25,6 +25,6 @@ public class CorsConfig implements WebMvcConfigurer {
         .allowedOrigins(origins.toArray(String[]::new))
         .allowedMethods("GET", "POST", "DELETE", "OPTIONS")
         .allowedHeaders("*")
-        .exposedHeaders("Location");
+        .exposedHeaders("Location", "X-Request-Id");
   }
 }

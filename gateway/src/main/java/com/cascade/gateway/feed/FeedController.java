@@ -51,6 +51,9 @@ public class FeedController {
                       item.getMediaUrl(),
                       item.getCreatedAtUnixMs(),
                       item.getRankScore(),
+                      item.getRecencyScore(),
+                      item.getEngagementScore(),
+                      item.getAffinityScore(),
                       author == null ? null : AuthorView.from(author));
                 })
             .toList();

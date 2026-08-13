@@ -30,9 +30,9 @@ type fakeHydrator struct {
 	ids   []int64
 }
 
-func (f *fakeHydrator) Hydrate(_ context.Context, ids []int64) (map[int64]feed.Post, error) {
+func (f *fakeHydrator) Hydrate(_ context.Context, ids []int64) (map[int64]feed.Post, int, int, error) {
 	f.ids = append([]int64(nil), ids...)
-	return f.value, f.err
+	return f.value, len(f.value), 0, f.err
 }
 
 type fakeSignals struct {
@@ -58,7 +58,7 @@ func (idRanker) Rank(posts []feed.Post, _ map[int64]feed.Signal) []feed.RankedPo
 }
 
 func testServer(c CandidateStore, h Hydrator, s SignalProvider) *Server {
-	return New(c, h, s, idRanker{}, 200, 20, 100, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New(c, h, s, idRanker{}, nil, 200, 20, 100, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestServerImplementsInterface(t *testing.T) {

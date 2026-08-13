@@ -1,5 +1,6 @@
 package com.cascade.gateway.config;
 
+import com.cascade.gateway.observability.RequestIdClientInterceptor;
 import com.cascade.proto.feed.v1.FeedServiceGrpc;
 import com.cascade.proto.post.v1.PostServiceGrpc;
 import io.grpc.ManagedChannel;
@@ -24,12 +25,14 @@ public class GrpcConfig {
   @Bean
   PostServiceGrpc.PostServiceBlockingStub postStub(
       @Qualifier("postChannel") ManagedChannel postChannel) {
-    return PostServiceGrpc.newBlockingStub(postChannel);
+    return PostServiceGrpc.newBlockingStub(postChannel)
+        .withInterceptors(new RequestIdClientInterceptor());
   }
 
   @Bean
   FeedServiceGrpc.FeedServiceBlockingStub feedStub(
       @Qualifier("feedChannel") ManagedChannel feedChannel) {
-    return FeedServiceGrpc.newBlockingStub(feedChannel);
+    return FeedServiceGrpc.newBlockingStub(feedChannel)
+        .withInterceptors(new RequestIdClientInterceptor());
   }
 }

@@ -36,6 +36,9 @@ func TestLoadDefaults(t *testing.T) {
 		cfg.TombstoneTTL != 24*time.Hour {
 		t.Errorf("unexpected processing defaults: %+v", cfg)
 	}
+	if cfg.MetricsAddr != ":9102" {
+		t.Errorf("MetricsAddr = %q, want :9102", cfg.MetricsAddr)
+	}
 }
 
 func TestLoadOverridesAndInvalidIntFallsBack(t *testing.T) {

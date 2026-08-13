@@ -16,6 +16,7 @@ import (
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/cache"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/config"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/events"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/observability"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/postserver"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,7 +68,14 @@ func main() {
 	}
 	defer lis.Close()
 
-	grpcServer := grpc.NewServer()
+	metricsServer := observability.ServeMetrics(cfg.MetricsAddr, logger)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = metricsServer.Shutdown(shutdownCtx)
+	}()
+
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(observability.UnaryServerInterceptor(logger)))
 	postv1.RegisterPostServiceServer(grpcServer, postserver.New(
 		repository.New(pool),
 		cache.New(redisClient, cfg.CacheTTL, cfg.TombstoneTTL),

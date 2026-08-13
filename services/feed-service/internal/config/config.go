@@ -33,6 +33,7 @@ type Config struct {
 	AffinityWindow   time.Duration
 	AffinityDefault  float64
 	StartupTimeout   time.Duration
+	MetricsAddr      string
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -42,6 +43,7 @@ func Load() (Config, error) {
 		DatabaseURL:     getEnv("DATABASE_URL", "postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable"),
 		RedisAddr:       getEnv("REDIS_ADDR", "localhost:6379"),
 		PostServiceAddr: getEnv("POST_SERVICE_ADDR", "localhost:9090"),
+		MetricsAddr:     getEnv("FEED_METRICS_ADDR", ":9101"),
 	}
 	var err error
 	if cfg.DefaultPageSize, err = int32Env("FEED_DEFAULT_PAGE_SIZE", 20); err != nil {

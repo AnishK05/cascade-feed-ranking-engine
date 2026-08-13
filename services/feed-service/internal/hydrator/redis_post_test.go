@@ -44,12 +44,12 @@ func TestHydrateCacheHitsMissesOneBatchAndBackfill(t *testing.T) {
 		{Id: 3, AuthorId: 30, Content: "miss 3", CreatedAtUnixMs: now.Add(-2 * time.Minute).UnixMilli()},
 	}}}
 
-	got, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1, 2, 3, 2})
+	got, hits, misses, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1, 2, 3, 2})
 	if err != nil {
 		t.Fatalf("Hydrate() error = %v", err)
 	}
-	if len(got) != 3 || got[1].Content != "hit" || posts.calls != 1 {
-		t.Fatalf("Hydrate() = %+v, Post Service calls = %d", got, posts.calls)
+	if len(got) != 3 || got[1].Content != "hit" || posts.calls != 1 || hits != 1 || misses != 2 {
+		t.Fatalf("Hydrate() = %+v hits=%d misses=%d Post Service calls = %d", got, hits, misses, posts.calls)
 	}
 	assertIDs(t, posts.ids, []int64{2, 3})
 	for _, id := range []string{"post:2", "post:3"} {
@@ -69,7 +69,7 @@ func TestHydrateSkipsTombstonedPostsEvenIfCached(t *testing.T) {
 	server.SAdd("tombstones", "1", "2")
 	posts := &fakePostClient{err: errors.New("must not hydrate tombstones")}
 
-	got, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1, 2})
+	got, _, _, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1, 2})
 	if err != nil {
 		t.Fatalf("Hydrate() error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestHydrateAllHitsAvoidsPostService(t *testing.T) {
 	value, _ := json.Marshal(cachedPost{ID: 1, AuthorID: 2, CreatedAtUnixMs: 1})
 	server.Set("post:1", string(value))
 	posts := &fakePostClient{err: errors.New("must not be called")}
-	if _, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1}); err != nil {
+	if _, _, _, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1}); err != nil {
 		t.Fatalf("Hydrate() error = %v", err)
 	}
 	if posts.calls != 0 {
@@ -102,12 +102,12 @@ func TestHydrateDependencyAndCorruptCacheErrors(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	server.Set("post:1", "{bad")
 	h := NewRedisPost(client, &fakePostClient{}, time.Hour)
-	if _, err := h.Hydrate(context.Background(), []int64{1}); err == nil {
+	if _, _, _, err := h.Hydrate(context.Background(), []int64{1}); err == nil {
 		t.Fatal("Hydrate() error = nil, want corrupt cache error")
 	}
 	server.Del("post:1")
 	h = NewRedisPost(client, &fakePostClient{err: errors.New("down")}, time.Hour)
-	if _, err := h.Hydrate(context.Background(), []int64{1}); err == nil {
+	if _, _, _, err := h.Hydrate(context.Background(), []int64{1}); err == nil {
 		t.Fatal("Hydrate() error = nil, want Post Service error")
 	}
 }

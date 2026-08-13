@@ -35,4 +35,9 @@ message FeedItem {
   string media_url = 4;
   int64 created_at_unix_ms = 5;
   double rank_score = 6;
+  // Weighted score components from the heuristic in IMPLEMENTATION_PLAN.md §8.1.
+  // They sum to rank_score and power the frontend's "why am I seeing this" debug view.
+  double recency_score = 7;
+  double engagement_score = 8;
+  double affinity_score = 9;
 }

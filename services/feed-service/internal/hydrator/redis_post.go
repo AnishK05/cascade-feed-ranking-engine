@@ -38,14 +38,14 @@ func NewRedisPost(redisClient *redis.Client, postClient postv1.PostServiceClient
 // Hydrate uses one Redis MGET and, when needed, exactly one PostService.GetPosts call.
 // Tombstoned IDs are dropped before cache reads so a delete is visible on the next
 // hydration even if `post:{id}` was not yet evicted.
-func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Post, error) {
+func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Post, int, int, error) {
 	ids = unique(ids)
 	ids, err := h.withoutTombstones(ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	if len(ids) == 0 {
-		return map[int64]feed.Post{}, nil
+		return map[int64]feed.Post{}, 0, 0, nil
 	}
 	keys := make([]string, len(ids))
 	for i, id := range ids {
@@ -53,7 +53,7 @@ func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Po
 	}
 	values, err := h.redis.MGet(ctx, keys...).Result()
 	if err != nil {
-		return nil, fmt.Errorf("read post cache: %w", err)
+		return nil, 0, 0, fmt.Errorf("read post cache: %w", err)
 	}
 
 	result := make(map[int64]feed.Post, len(ids))
@@ -65,24 +65,25 @@ func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Po
 		}
 		raw, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("cached post %d has unexpected type %T", ids[i], value)
+			return nil, 0, 0, fmt.Errorf("cached post %d has unexpected type %T", ids[i], value)
 		}
 		var cached cachedPost
 		if err := json.Unmarshal([]byte(raw), &cached); err != nil {
-			return nil, fmt.Errorf("decode cached post %d: %w", ids[i], err)
+			return nil, 0, 0, fmt.Errorf("decode cached post %d: %w", ids[i], err)
 		}
 		if cached.ID != ids[i] || cached.AuthorID <= 0 || cached.CreatedAtUnixMs <= 0 {
-			return nil, fmt.Errorf("cached post %d is invalid", ids[i])
+			return nil, 0, 0, fmt.Errorf("cached post %d is invalid", ids[i])
 		}
 		result[ids[i]] = fromCache(cached)
 	}
 
+	hits, misses := len(result), len(missing)
 	if len(missing) == 0 {
-		return result, nil
+		return result, hits, misses, nil
 	}
 	response, err := h.posts.GetPosts(ctx, &postv1.GetPostsRequest{PostIds: missing})
 	if err != nil {
-		return nil, fmt.Errorf("batch hydrate posts: %w", err)
+		return nil, 0, 0, fmt.Errorf("batch hydrate posts: %w", err)
 	}
 	backfill := make([]cachedPost, 0, len(response.GetPosts()))
 	missingSet := make(map[int64]struct{}, len(missing))
@@ -95,7 +96,7 @@ func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Po
 		}
 		if _, ok := missingSet[post.GetId()]; !ok || post.GetId() <= 0 ||
 			post.GetAuthorId() <= 0 || post.GetCreatedAtUnixMs() <= 0 {
-			return nil, fmt.Errorf("Post Service returned an invalid or unrequested post")
+			return nil, 0, 0, fmt.Errorf("Post Service returned an invalid or unrequested post")
 		}
 		cached := cachedPost{
 			ID:              post.GetId(),
@@ -109,9 +110,9 @@ func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Po
 		delete(missingSet, cached.ID)
 	}
 	if err := h.backfill(ctx, backfill); err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
-	return result, nil
+	return result, hits, misses, nil
 }
 
 func (h *RedisPost) withoutTombstones(ctx context.Context, ids []int64) ([]int64, error) {

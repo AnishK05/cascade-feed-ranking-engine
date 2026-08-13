@@ -186,7 +186,7 @@ func TestFeedIntegration(t *testing.T) {
 		hydrator.NewRedisPost(redisClient, postv1.NewPostServiceClient(conn), time.Hour),
 		signals.NewPostgres(pool, 30*24*time.Hour, 0),
 		ranking.NewHeuristic(ranking.Weights{Recency: 1, Engagement: 2, Affinity: 1, HalfLife: 12 * time.Hour}),
-		20, 20, 100, nil,
+		nil, 20, 20, 100, nil,
 	)
 	first, err := server.GetFeed(ctx, &feedv1.GetFeedRequest{UserId: viewerID, PageSize: 1})
 	if err != nil {
