@@ -14,6 +14,7 @@ jobs:
   go:
     name: Go services
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +44,9 @@ jobs:
         run: make go-build
 
       - name: go test
-        run: make go-test
+        run: make go-cover
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
 
   java:
     name: Java services
@@ -177,3 +180,20 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  k8s:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kustomize and kubeconform
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.6.0/kustomize_v5.6.0_linux_amd64.tar.gz" | tar -xz
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz" | tar -xz
+          sudo mv kustomize kubeconform /usr/local/bin
+          kustomize version
+          kubeconform -v
+
+      - name: Validate kind manifests
+        run: make k8s-validate

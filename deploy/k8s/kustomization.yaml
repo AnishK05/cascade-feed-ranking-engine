@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cascade
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: cascade-db
+    literals:
+      - POSTGRES_USER=cascade
+      - POSTGRES_PASSWORD=cascade
+      - POSTGRES_DB=cascade
+      - DATABASE_URL=postgres://cascade:cascade@postgres:5432/cascade?sslmode=disable
+
+configMapGenerator:
+  - name: cascade-config
+    literals:
+      - CELEBRITY_FOLLOWER_THRESHOLD=10000
+      - CELEBRITY_THRESHOLD=10000
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000
+      - POST_SERVICE_GRPC_PORT=9090
+      - FEED_SERVICE_GRPC_PORT=9091
+      - POST_METRICS_ADDR=:9100
+      - FEED_METRICS_ADDR=:9101
+      - FANOUT_METRICS_ADDR=:9102
+      - FEED_RECENCY_WEIGHT=1
+      - FEED_ENGAGEMENT_WEIGHT=1
+      - FEED_AFFINITY_WEIGHT=1
+      - FEED_RECENCY_HALF_LIFE=12h
+      - FEED_BYPASS_CACHE=false
+      - POST_BYPASS_CACHE=false
+  - name: postgres-init
+    files:
+      - 001-users.sql=init/001-users.sql
+      - 002-follows.sql=init/002-follows.sql
+      - 003-posts.sql=init/003-posts.sql
+      - 004-engagements.sql=init/004-engagements.sql
+  - name: kafka-init-script
+    files:
+      - kafka-init.sh=init/kafka-init.sh
+
+resources:
+  - postgres.yaml
+  - redis.yaml
+  - kafka.yaml
+  - kafka-init-job.yaml
+  - post-service.yaml
+  - feed-service.yaml
+  - feed-hpa.yaml
+  - fanout-worker.yaml
+  - social-graph.yaml
+  - gateway.yaml
+  - frontend.yaml

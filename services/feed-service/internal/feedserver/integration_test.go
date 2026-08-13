@@ -14,6 +14,7 @@ import (
 	postv1 "github.com/AnishK05/cascade-feed-ranking-engine/proto/gen/go/post/v1"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/candidate"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/hydrator"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/itest"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/ranking"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/feed-service/internal/signals"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,7 +48,7 @@ func TestFeedIntegration(t *testing.T) {
 	databaseURL := os.Getenv("FEED_SERVICE_INTEGRATION_DATABASE_URL")
 	redisAddr := os.Getenv("FEED_SERVICE_INTEGRATION_REDIS_ADDR")
 	if databaseURL == "" || redisAddr == "" {
-		t.Skip("set FEED_SERVICE_INTEGRATION_DATABASE_URL and FEED_SERVICE_INTEGRATION_REDIS_ADDR")
+		databaseURL, redisAddr = itest.PostgresAndRedis(t)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

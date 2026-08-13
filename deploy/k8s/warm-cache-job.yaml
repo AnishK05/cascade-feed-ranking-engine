@@ -1,0 +1,35 @@
+# Optional Job: rebuild Redis timelines from Postgres. Apply after the cluster is up:
+#   kubectl apply -k deploy/k8s && kubectl apply -f deploy/k8s/warm-cache-job.yaml
+# Not part of the default kustomization so `kubectl apply -k` does not run it as a
+# long-lived controller (same idea as Compose profile `tools`).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: warm-cache
+  namespace: cascade
+  labels:
+    app: warm-cache
+    app.kubernetes.io/part-of: cascade
+spec:
+  ttlSecondsAfterFinished: 120
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: warm-cache
+          image: cascade/warm-cache:local
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: cascade-db
+          env:
+            - name: REDIS_ADDR
+              value: redis:6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

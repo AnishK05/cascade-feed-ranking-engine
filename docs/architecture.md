@@ -316,3 +316,26 @@ multi-stage (Go toolchain + `protoc` for gitignored stubs; Maven Wrapper for Jav
 `scripts/smoke_test.py` (`make smoke`) is the one-command proof: two users, a follow, a post,
 then poll the follower feed until fanout lands. `warm-cache` is a Compose `tools` profile so
 `make up` does not run it as a long-lived service.
+
+## Local Kubernetes (Phase 14)
+
+`make kind-up` builds the Compose app images, `kind load`s them into a cluster named
+`cascade`, and applies `deploy/k8s`. Gateway NodePort 30080 is mapped to host 8080 so the
+existing smoke script does not change. Feed Service has a CPU HPA (1–4 replicas, 50% of a
+100m request). metrics-server is installed with `--kubelet-insecure-tls` (kind only). There
+are no cloud load-balancer annotations. See [ADR 0007](decisions/0007-local-kind-only.md).
+
+## Testing strategy (Phase 16)
+
+Unit tests cover the pure decisions (hybrid fanout threshold, heuristic reorder, cursor
+codec, Zipf graph). Feed Service and Fanout Worker integration tests start real
+Postgres/Redis/Kafka via testcontainers-go when Docker is available, and skip otherwise.
+`scripts/smoke_test.py` is the whole-system check.
+CI also runs a cheap perf guard: ci-preset graph generation < 1s, and `Rank(500)` < 50ms.
+Live Locust remains a manual/kind exercise.
+
+## ADRs
+
+Recorded under [`docs/decisions/`](decisions/README.md). Phase 9.5 (Fanout Worker calls Social
+Graph over REST instead of SQL) is explicitly deferred in
+[ADR 0004](decisions/0004-fanout-direct-postgres.md).
