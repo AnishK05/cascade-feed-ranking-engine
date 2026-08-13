@@ -307,6 +307,11 @@ three candidate SQL queries plus one `posts` hydration query. Post Service
 `feed_postgres_queries_total` / `post_postgres_queries_total` scraped around each Locust run
 (`loadtest/benchmark.py`). Write-ups live under `docs/benchmarks/`.
 
+## Running the stack
+
+- **Windows:** `cascade.cmd up` then `cascade.cmd smoke` — [`running-on-windows.md`](running-on-windows.md).
+- **Linux/macOS:** `make up` then `make smoke` (README quickstart).
+
 ## Docker Compose (Phase 13)
 
 `deploy/docker-compose.yml` runs the data plane and every application process. App images are

@@ -9,6 +9,17 @@ latency/throughput under simulated load — not on building a full social app.
 and phase-by-phase roadmap for this project. Everything below is a quick-start; the plan has the
 full architecture, rationale, and a decisions log for every non-obvious design choice.
 
+**Windows:** Docker Desktop + PowerShell or cmd. From the repo root:
+
+```bat
+cascade.cmd up
+cascade.cmd smoke
+```
+
+Then open http://localhost:3000 . Full walkthrough and error table:
+[`docs/running-on-windows.md`](./docs/running-on-windows.md). You do not need Make,
+Git Bash, or an Ubuntu terminal to run the demo.
+
 ## Status
 
 Phases 0–16 of the roadmap that this repo implements are complete: schema through Compose,
@@ -61,8 +72,10 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
   ```
 - Node 22+ (for the frontend; not required if you only run the Compose image)
-- Python 3.12+ (for `loadtest/` and `make smoke`)
-- Docker with Compose v2 (`make up` starts the entire stack)
+- Python 3.12+ (for `loadtest/` and `make smoke` / `cascade.cmd smoke`)
+- Docker with Compose v2 (`make up` or `cascade.cmd up` starts the entire stack)
+- **Windows:** Docker Desktop + Python is enough to demo; use `cascade.cmd` (see
+  [`docs/running-on-windows.md`](./docs/running-on-windows.md)). Go/Java/Make are optional.
 - `kind` and `kubectl` if you want the Phase 14 local Kubernetes path (`make kind-up`)
 - The [`migrate` CLI](https://github.com/golang-migrate/migrate) for running migrations against
   a host-native Postgres (Compose applies the up SQL files on first boot):
@@ -71,6 +84,15 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
   ```
 
 ## Quickstart
+
+**Windows (PowerShell or cmd):** [`docs/running-on-windows.md`](./docs/running-on-windows.md)
+
+```bat
+cascade.cmd up
+cascade.cmd smoke
+```
+
+**Linux / macOS:**
 
 ```bash
 make help          # list all available targets
