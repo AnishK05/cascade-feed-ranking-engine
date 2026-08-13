@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,6 +72,16 @@ public class UserService {
   @Transactional(readOnly = true)
   public List<UserResponse> celebrities() {
     return userRepository.findByCelebrityTrueOrderByIdAsc().stream()
+        .map(UserResponse::from)
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public List<UserResponse> list(int limit) {
+    if (limit < 1 || limit > 100) {
+      throw new BadRequestException("limit must be between 1 and 100");
+    }
+    return userRepository.findAllByOrderByIdAsc(PageRequest.of(0, limit)).stream()
         .map(UserResponse::from)
         .toList();
   }

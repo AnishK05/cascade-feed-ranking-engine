@@ -76,4 +76,14 @@ class SocialGraphControllerTests {
 
     verify(socialGraphClient).followers(2, null, 20);
   }
+
+  @Test
+  void listsUsers() throws Exception {
+    when(socialGraphClient.listUsers(50))
+        .thenReturn(List.of(new UserView(1, "alice", "Alice", false, 0, OffsetDateTime.now())));
+
+    mvc.perform(get("/api/users"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].username").value("alice"));
+  }
 }

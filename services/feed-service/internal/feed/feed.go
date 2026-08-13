@@ -30,5 +30,8 @@ type Signal struct {
 // RankedPost is a post plus its computed rank score.
 type RankedPost struct {
 	Post
-	Score float64
+	Score      float64
+	Recency    float64
+	Engagement float64
+	Affinity   float64
 }

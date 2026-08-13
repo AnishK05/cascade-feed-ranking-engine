@@ -20,6 +20,11 @@ func TestEngagementAndAffinityReorderChronologicalCandidates(t *testing.T) {
 	if got[0].ID != 1 {
 		t.Fatalf("ranked IDs = [%d, %d], engagement and affinity should reorder chronology", got[0].ID, got[1].ID)
 	}
+	sum := got[0].Recency + got[0].Engagement + got[0].Affinity
+	if math.Abs(got[0].Score-sum) > 1e-12 {
+		t.Fatalf("score components %f + %f + %f = %f, want %f",
+			got[0].Recency, got[0].Engagement, got[0].Affinity, sum, got[0].Score)
+	}
 }
 
 func TestRecencyExponentialDecay(t *testing.T) {

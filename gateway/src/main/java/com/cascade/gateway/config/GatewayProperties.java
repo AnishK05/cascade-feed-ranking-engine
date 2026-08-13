@@ -12,7 +12,8 @@ public record GatewayProperties(
     String feedServiceAddr,
     String socialGraphBaseUrl,
     String corsAllowedOrigins,
-    Duration grpcDeadline) {
+    Duration grpcDeadline,
+    String prometheusUrl) {
 
   public Duration grpcDeadlineOrDefault() {
     return grpcDeadline == null || grpcDeadline.isZero() || grpcDeadline.isNegative()

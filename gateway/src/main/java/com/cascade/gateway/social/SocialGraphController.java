@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,6 +39,12 @@ public class SocialGraphController {
   @GetMapping("/users/{id}")
   UserView getUser(@PathVariable @Positive long id) {
     return socialGraphClient.getUser(id);
+  }
+
+  @GetMapping("/users")
+  List<UserView> listUsers(
+      @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit) {
+    return socialGraphClient.listUsers(limit);
   }
 
   @PostMapping("/follows")

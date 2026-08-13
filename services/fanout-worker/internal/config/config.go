@@ -43,6 +43,7 @@ type Config struct {
 	// set used by Feed Service at read time (IMPLEMENTATION_PLAN.md §7.4).
 	TombstoneTTL   time.Duration
 	StartupTimeout time.Duration
+	MetricsAddr    string
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -67,6 +68,7 @@ func Load() Config {
 		FollowerCountCacheTTL:      getEnvDuration("FOLLOWER_COUNT_CACHE_TTL", time.Minute),
 		TombstoneTTL:               getEnvDuration("TOMBSTONE_TTL", 24*time.Hour),
 		StartupTimeout:             getEnvDuration("STARTUP_TIMEOUT", 5*time.Second),
+		MetricsAddr:                getEnv("FANOUT_METRICS_ADDR", ":9102"),
 	}
 }
 

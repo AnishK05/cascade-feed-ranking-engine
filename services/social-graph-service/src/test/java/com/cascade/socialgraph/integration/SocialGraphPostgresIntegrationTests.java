@@ -60,6 +60,9 @@ class SocialGraphPostgresIntegrationTests {
     assertThat(page.items()).hasSize(1);
     assertThat(page.nextCursor()).isNotBlank();
     assertThat(followService.followers(target.id(), page.nextCursor(), 1).items()).hasSize(1);
+    assertThat(userService.list(10))
+        .extracting(UserResponse::username)
+        .contains("target", "first", "second");
 
     followService.unfollow(second.id(), target.id());
     UserResponse afterUnfollow = userService.get(target.id());

@@ -6,13 +6,16 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/config"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/consumer"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/fanout"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/observability"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/repository"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/timeline"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,18 +24,21 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf(
-		"fanout-worker: starting (kafka_brokers=%v celebrity_follower_threshold=%d max_timeline_len=%d)",
-		cfg.KafkaBrokers, cfg.CelebrityFollowerThreshold, cfg.MaxTimelineLen,
+	logger.Info("starting",
+		"kafka_brokers", cfg.KafkaBrokers,
+		"celebrity_follower_threshold", cfg.CelebrityFollowerThreshold,
+		"max_timeline_len", cfg.MaxTimelineLen,
 	)
 
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("fanout-worker: configure Postgres: %v", err)
+		logger.Error("configure Postgres", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -50,41 +56,54 @@ func main() {
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	)
 	if err != nil {
-		log.Fatalf("fanout-worker: configure Kafka: %v", err)
+		logger.Error("configure Kafka", "error", err)
+		os.Exit(1)
 	}
 	defer kafkaClient.Close()
 
 	startupCtx, cancel := context.WithTimeout(ctx, cfg.StartupTimeout)
 	defer cancel()
 	if err := pool.Ping(startupCtx); err != nil {
-		log.Fatalf("fanout-worker: ping Postgres: %v", err)
+		logger.Error("ping Postgres", "error", err)
+		os.Exit(1)
 	}
 	if err := redisClient.Ping(startupCtx).Err(); err != nil {
-		log.Fatalf("fanout-worker: ping Redis: %v", err)
+		logger.Error("ping Redis", "error", err)
+		os.Exit(1)
 	}
 	if err := kafkaClient.Ping(startupCtx); err != nil {
-		log.Fatalf("fanout-worker: ping Kafka: %v", err)
+		logger.Error("ping Kafka", "error", err)
+		os.Exit(1)
 	}
+
+	metrics := observability.NewMetrics()
+	metricsServer := observability.ServeMetrics(cfg.MetricsAddr, logger)
+	defer func() {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelShutdown()
+		_ = metricsServer.Shutdown(shutdownCtx)
+	}()
+	go observability.WatchLag(ctx, kafkaClient, cfg.ConsumerGroup, metrics, logger)
 
 	repo := repository.NewPostgres(pool)
 	timelines := timeline.NewRedis(redisClient, cfg.FollowerCountCacheTTL, cfg.TombstoneTTL)
-	processor := fanout.NewProcessor(repo, timelines, fanout.Settings{
+	processor := observability.Instrument(fanout.NewProcessor(repo, timelines, fanout.Settings{
 		PostTopic: cfg.PostTopic, FollowTopic: cfg.FollowTopic,
 		CelebrityFollowerThreshold: cfg.CelebrityFollowerThreshold,
 		MaxTimelineLen:             cfg.MaxTimelineLen, BackfillCount: cfg.BackfillCount,
 		FanoutBatchSize: cfg.FanoutBatchSize,
-	})
+	}), metrics)
 	publisher := consumer.NewKafkaPublisher(
 		kafkaClient, cfg.PostTopic, cfg.FollowTopic, cfg.PostDLQTopic, cfg.FollowDLQTopic,
 	)
 	handler := consumer.NewRecordHandler(processor, publisher, cfg.MaxRetries, cfg.RetryBackoff)
 
-	log.Printf("fanout-worker: consuming topics %q and %q as group %q",
-		cfg.PostTopic, cfg.FollowTopic, cfg.ConsumerGroup)
+	logger.Info("consuming", "post_topic", cfg.PostTopic, "follow_topic", cfg.FollowTopic, "group", cfg.ConsumerGroup)
 	source := consumer.NewKafkaRecordSource(kafkaClient)
 	err = consumer.NewRunner(source, handler).Run(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("fanout-worker: stopped with error: %v", err)
+		logger.Error("stopped with error", "error", err)
+		os.Exit(1)
 	}
-	log.Println("fanout-worker: shutdown complete")
+	logger.Info("shutdown complete")
 }

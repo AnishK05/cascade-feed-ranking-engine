@@ -75,6 +75,21 @@ public class RestSocialGraphClient implements SocialGraphClient {
   }
 
   @Override
+  public List<UserView> listUsers(int limit) {
+    try {
+      UserView[] users =
+          restClient
+              .get()
+              .uri(uriBuilder -> uriBuilder.path("/users").queryParam("limit", limit).build())
+              .retrieve()
+              .body(UserView[].class);
+      return users == null ? List.of() : Arrays.asList(users);
+    } catch (RestClientException exception) {
+      throw map(exception, "list users");
+    }
+  }
+
+  @Override
   public FollowView follow(long followerId, long followeeId) {
     try {
       return restClient

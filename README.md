@@ -11,10 +11,11 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0-9 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
+Phases 0-11 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
 KRaft, hybrid fanout, the Feed Service read path, heuristic ranking, cache invalidation and
-cold-start warming, and the Gateway/BFF with an `X-User-Id` auth stub. Phase 9.5 (Fanout Worker
-REST boundary refactor) is next.
+cold-start warming, the Gateway/BFF with an `X-User-Id` auth stub, the Next.js demo UI, and
+Prometheus/Grafana observability. Phase 9.5 (Fanout Worker REST boundary refactor) and Phase 12
+(load testing) are next.
 
 ## Repository layout
 
@@ -77,6 +78,7 @@ override it by exporting `DATABASE_URL` or passing it inline, e.g.
 POST   /users
 GET    /users/{id}
 GET    /users?ids=1,2,3
+GET    /users?limit=                       omit `ids` to list users (max 100)
 POST   /follows
 DELETE /follows/{followerId}/{followeeId}
 GET    /users/{id}/followers?cursor=&limit=
@@ -138,7 +140,9 @@ N+1 lookups. Results use deterministic score/time/post-ID ordering and an opaque
 keyset cursor. Configure the service with `FEED_SERVICE_GRPC_PORT`, `DATABASE_URL`,
 `REDIS_ADDR`, `POST_SERVICE_ADDR`, `FEED_CANDIDATE_POOL_SIZE`, page-size settings,
 `FEED_POST_CACHE_TTL`, the three `FEED_*_WEIGHT` variables, `FEED_RECENCY_HALF_LIFE`,
-`FEED_AFFINITY_WINDOW`, and `FEED_AFFINITY_DEFAULT`.
+`FEED_AFFINITY_WINDOW`, `FEED_AFFINITY_DEFAULT`, and `FEED_METRICS_ADDR` (Prometheus scrape
+port, default `:9101`). Post Service scrapes at `POST_METRICS_ADDR` (`:9100`); Fanout Worker
+at `FANOUT_METRICS_ADDR` (`:9102`).
 
 ### Cache invalidation and warming (Phase 8)
 
@@ -172,18 +176,45 @@ POST   /api/posts                         X-User-Id is the author; response is p
 DELETE /api/posts/{id}                    X-User-Id must be the author
 GET    /api/posts?ids=1,2,3
 POST   /api/users                         no auth (creates a simulated identity)
+GET    /api/users?limit=                  user switcher directory
 GET    /api/users/{id}
 POST   /api/follows                       X-User-Id is the follower; body `{ "followeeId": N }`
 DELETE /api/follows/{followeeId}          X-User-Id is the follower
 GET    /api/users/{id}/followers
 GET    /api/users/{id}/following
+GET    /api/admin/metrics                 Prometheus snapshot for the admin dashboard
 GET    /api/ping
 ```
 
 Configure with `GATEWAY_PORT`, `POST_SERVICE_ADDR`, `FEED_SERVICE_ADDR`,
-`SOCIAL_GRAPH_BASE_URL`, `CORS_ALLOWED_ORIGINS`, and `GATEWAY_GRPC_DEADLINE`. Create-post
-responses include `postId` / `authorId` / `createdAtUnixMs` so the author's own client can
-optimistically prepend the new post while follower feeds catch up through Kafka.
+`SOCIAL_GRAPH_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `GATEWAY_GRPC_DEADLINE`, and
+`PROMETHEUS_URL` (default `http://localhost:9095`). Create-post responses include `postId` /
+`authorId` / `createdAtUnixMs` so the author's own client can optimistically prepend the new
+post while follower feeds catch up through Kafka. Feed items include the heuristic score
+breakdown (`recencyScore`, `engagementScore`, `affinityScore`) for the debug toggle.
+
+### Demo frontend (`frontend/`, port `3000`)
+
+Next.js App Router UI talks only to the Gateway. Pick a seeded user in the top-bar switcher
+(`X-User-Id`), compose a post on `/feed`, follow people on `/graph`, and watch cache hit
+ratio / feed latency / Kafka lag on `/admin`. Point `NEXT_PUBLIC_API_BASE` at the Gateway
+(default `http://localhost:8080`).
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+### Observability (Prometheus `9095`, Grafana `3001`)
+
+Every service exposes Prometheus metrics. Go services bind `/metrics` on 9100/9101/9102; Java
+services expose `/actuator/prometheus` on their HTTP ports. The Gateway stamps `X-Request-Id`
+(or generates one) and forwards it as gRPC metadata `x-request-id` and as an HTTP header to
+Social Graph, so one ID greps across JSON logs. Compose starts Prometheus and Grafana;
+Grafana is provisioned with the Cascade Feed dashboard (anonymous viewer, or `admin`/`admin`).
+
+```bash
+make up   # now also starts Prometheus and Grafana
+```
 
 ### A note on generated code
 

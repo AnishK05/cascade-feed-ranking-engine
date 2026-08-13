@@ -1,6 +1,8 @@
 package com.cascade.socialgraph.user;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
 import java.util.List;
@@ -39,5 +41,11 @@ public class UserController {
   @GetMapping(params = "ids")
   List<UserResponse> getMany(@RequestParam List<Long> ids) {
     return userService.getMany(ids);
+  }
+
+  @GetMapping(params = "!ids")
+  List<UserResponse> list(
+      @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit) {
+    return userService.list(limit);
   }
 }

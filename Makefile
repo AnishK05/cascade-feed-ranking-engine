@@ -140,7 +140,7 @@ migrate-create: ## Create a new migration pair, e.g. `make migrate-create name=a
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Start local infrastructure via Docker Compose.
+up: ## Start local infrastructure (Postgres, Redis, Kafka, Prometheus, Grafana).
 	docker compose -f deploy/docker-compose.yml up -d
 
 .PHONY: down

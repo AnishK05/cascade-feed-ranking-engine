@@ -7,4 +7,7 @@ public record FeedItemView(
     String mediaUrl,
     long createdAtUnixMs,
     double rankScore,
+    double recencyScore,
+    double engagementScore,
+    double affinityScore,
     AuthorView author) {}

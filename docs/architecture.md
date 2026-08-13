@@ -275,3 +275,20 @@ celebrity flag from Social Graph's batch `GET /users?ids=` so Feed Service stays
 path. `POST /api/posts` returns the created IDs immediately so the author's client can
 read-your-own-write by prepending, while follower feeds remain eventually consistent through
 the Kafka fanout path.
+
+## Frontend demo (Phase 10)
+
+The Next.js app is the only user-facing client. It stores the simulated viewer in
+`localStorage` and sends `X-User-Id` on every Gateway call. `/feed` infinite-scrolls ranked
+items, prepends the author's own posts immediately, and keeps a "fanning out…" hint until that
+post is observed in another user's feed. `/graph` follow/unfollows other seeded users.
+`/admin` polls `GET /api/admin/metrics`.
+
+## Observability (Phase 11)
+
+Request IDs originate at the Gateway (`X-Request-Id`) and propagate to Post/Feed over gRPC
+metadata and to Social Graph over HTTP. Each service logs JSON (Go `slog`, Spring Boot ECS)
+including that ID. Prometheus scrapes host-native Go `/metrics` ports 9100-9102 and Java
+`/actuator/prometheus` endpoints through `host.docker.internal`. Grafana on port 3001 loads a
+provisioned dashboard for feed req/sec, latency percentiles, cache hit ratio, fanout lag, and
+Kafka consumer lag. Jaeger tracing is intentionally out of scope.

@@ -28,6 +28,8 @@ type Config struct {
 	// TombstoneTTL is how long deleted post IDs stay in the global Redis tombstones
 	// set. It should outlast typical timeline turnover (IMPLEMENTATION_PLAN.md §7.4).
 	TombstoneTTL time.Duration
+	// MetricsAddr is the bind address for the Prometheus /metrics HTTP server.
+	MetricsAddr string
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -48,6 +50,7 @@ func Load() Config {
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "post-events"),
 		CacheTTL:     cacheTTL,
 		TombstoneTTL: tombstoneTTL,
+		MetricsAddr:  getEnv("POST_METRICS_ADDR", ":9100"),
 	}
 }
 
