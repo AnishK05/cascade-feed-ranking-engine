@@ -25,6 +25,9 @@ type Config struct {
 	KafkaTopic string
 	// CacheTTL controls the lifetime of post JSON values in Redis.
 	CacheTTL time.Duration
+	// TombstoneTTL is how long deleted post IDs stay in the global Redis tombstones
+	// set. It should outlast typical timeline turnover (IMPLEMENTATION_PLAN.md §7.4).
+	TombstoneTTL time.Duration
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -33,6 +36,10 @@ func Load() Config {
 	if err != nil || cacheTTL <= 0 {
 		cacheTTL = 6 * time.Hour
 	}
+	tombstoneTTL, err := time.ParseDuration(getEnv("POST_TOMBSTONE_TTL", "24h"))
+	if err != nil || tombstoneTTL <= 0 {
+		tombstoneTTL = 24 * time.Hour
+	}
 	return Config{
 		GRPCPort:     getEnv("POST_SERVICE_GRPC_PORT", "9090"),
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable"),
@@ -40,6 +47,7 @@ func Load() Config {
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "post-events"),
 		CacheTTL:     cacheTTL,
+		TombstoneTTL: tombstoneTTL,
 	}
 }
 

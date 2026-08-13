@@ -14,7 +14,7 @@ func TestRedisSetGetManyAndTTL(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	cache := New(client, 6*time.Hour)
+	cache := New(client, 6*time.Hour, 24*time.Hour)
 	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
 	posts := []post.Post{
 		{ID: 1, AuthorID: 10, Content: "one", CreatedAt: now},
@@ -46,7 +46,7 @@ func TestRedisDeleteAndTombstone(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	cache := New(client, time.Hour)
+	cache := New(client, time.Hour, 24*time.Hour)
 	p := post.Post{ID: 7, AuthorID: 3, Content: "deleted", CreatedAt: time.Now()}
 	if err := cache.Set(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -65,6 +65,9 @@ func TestRedisDeleteAndTombstone(t *testing.T) {
 	if !member {
 		t.Error("global tombstones set does not contain post ID")
 	}
+	if ttl := server.TTL(tombstonesKey); ttl != 24*time.Hour {
+		t.Errorf("tombstones TTL = %s, want 24h", ttl)
+	}
 }
 
 func TestRedisGetManyRejectsCorruptJSON(t *testing.T) {
@@ -73,7 +76,7 @@ func TestRedisGetManyRejectsCorruptJSON(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	server.Set(key(1), "{invalid")
 
-	if _, err := New(client, time.Hour).GetMany(context.Background(), []int64{1}); err == nil {
+	if _, err := New(client, time.Hour, 24*time.Hour).GetMany(context.Background(), []int64{1}); err == nil {
 		t.Fatal("GetMany() error = nil, want corrupt JSON error")
 	}
 }

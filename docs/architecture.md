@@ -208,7 +208,7 @@ the original key/value and failure metadata have been durably produced to the DL
 | `celebrity_posts:global` | ZSET | One write per celebrity post, regardless of follower count |
 | `following:celebrities:{userId}` | SET | Celebrity followees merged into the feed at read time |
 | `fanout:follower_count:{authorId}` | STRING | Short-lived count cache, invalidated by follow events |
-| `tombstones` | SET | Deleted post IDs filtered from cached timelines |
+| `tombstones` | SET | Deleted post IDs filtered from cached timelines; TTL refreshed on each delete |
 
 Redis `ZADD` and `SADD` operations are intentionally idempotent: Kafka's at-least-once
 redelivery updates an existing member instead of duplicating it. Timeline trim commands run in
@@ -242,3 +242,36 @@ window, and cold-start affinity are environment configuration. Ranking is determ
 score descending, then creation time descending, then post ID descending. Pagination uses a
 versioned URL-safe base64 keyset cursor containing those same three sort fields, so page
 boundaries do not depend on an unstable offset.
+
+## Cache invalidation and warming (Phase 8)
+
+Post delete is filter-on-read, not fanout-on-delete. Post Service deletes `post:{id}` and
+`SADD`s the ID to the global `tombstones` set in the same Redis transaction, then publishes
+`PostDeleted`. Feed Service drops tombstoned IDs during candidate load *and* hydration, so a
+delete is visible on the next read even if Kafka has not been consumed yet and even if a stale
+`post:{id}` value is still cached. The tombstone set carries a TTL (`POST_TOMBSTONE_TTL` /
+`TOMBSTONE_TTL`, default 24h) refreshed on every delete so recently-deleted IDs outlast typical
+timeline turnover. After expiry, `GetPosts` still omits `deleted_at IS NOT NULL` rows.
+
+Two warming paths:
+
+1. **Online new-follow backfill.** `FollowCreated` for a normal account writes that author's
+   recent posts into the follower's timeline ZSET. Celebrity follows only update
+   `following:celebrities:{followerId}`; historical celebrity posts are merged at read time.
+   Unfollow removes the celebrity marker and does not rewrite historical normal timelines.
+2. **Cold-start / deploy warming.** `make warm-cache` (`services/fanout-worker/cmd/warm-cache`)
+   reads users, follows, and recent posts from Postgres and rebuilds `timeline:{userId}`,
+   `following:celebrities:{userId}`, `celebrity_posts:global`, follower-count keys, and
+   `post:{id}` content cache. Use this after a Redis restart with no persistence, or to reset
+   caches between Phase 12 benchmark runs.
+
+## API Gateway / BFF (Phase 9)
+
+The Gateway is the only public HTTP surface. It terminates JSON from the frontend, calls Post
+and Feed over gRPC, and calls Social Graph over REST. `X-User-Id` is the auth stub: required
+for feed, post, and follow mutations; absent for creating/fetching simulated users. Missing or
+non-positive values return 401. `GET /api/feed` aggregates author `username` / `displayName` /
+celebrity flag from Social Graph's batch `GET /users?ids=` so Feed Service stays a lean hot
+path. `POST /api/posts` returns the created IDs immediately so the author's client can
+read-your-own-write by prepending, while follower feeds remain eventually consistent through
+the Kafka fanout path.

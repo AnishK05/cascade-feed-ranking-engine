@@ -67,7 +67,7 @@ func main() {
 	}
 
 	repo := repository.NewPostgres(pool)
-	timelines := timeline.NewRedis(redisClient, cfg.FollowerCountCacheTTL)
+	timelines := timeline.NewRedis(redisClient, cfg.FollowerCountCacheTTL, cfg.TombstoneTTL)
 	processor := fanout.NewProcessor(repo, timelines, fanout.Settings{
 		PostTopic: cfg.PostTopic, FollowTopic: cfg.FollowTopic,
 		CelebrityFollowerThreshold: cfg.CelebrityFollowerThreshold,

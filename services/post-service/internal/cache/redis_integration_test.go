@@ -24,7 +24,7 @@ func TestRedisIntegrationRoundTrip(t *testing.T) {
 	}
 
 	id := time.Now().UnixNano()
-	cache := New(client, time.Minute)
+	cache := New(client, time.Minute, 24*time.Hour)
 	t.Cleanup(func() {
 		_ = client.Del(context.Background(), key(id)).Err()
 		_ = client.SRem(context.Background(), tombstonesKey, id).Err()

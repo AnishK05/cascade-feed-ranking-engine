@@ -12,6 +12,7 @@ import com.cascade.socialgraph.api.ApiExceptionHandler;
 import com.cascade.socialgraph.api.ConflictException;
 import com.cascade.socialgraph.api.NotFoundException;
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -58,6 +59,20 @@ class UserControllerTests {
     mvc.perform(get("/users/99"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value("User not found: 99"));
+  }
+
+  @Test
+  void returnsUsersByIds() throws Exception {
+    when(userService.getMany(List.of(1L, 2L)))
+        .thenReturn(
+            List.of(
+                new UserResponse(1, "alice", "Alice", false, 0, OffsetDateTime.now()),
+                new UserResponse(2, "bob", "Bob", true, 12, OffsetDateTime.now())));
+
+    mvc.perform(get("/users").param("ids", "1,2"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].username").value("alice"))
+        .andExpect(jsonPath("$[1].id").value(2));
   }
 
   @Test
