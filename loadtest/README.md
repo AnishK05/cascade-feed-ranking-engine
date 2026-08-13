@@ -3,6 +3,9 @@
 Python tooling for seeding a power-law follow graph and running the before/after Redis-cache
 benchmark in `IMPLEMENTATION_PLAN.md` §13.
 
+To bring the stack up first, see [`docs/running.md`](../docs/running.md). On Windows,
+`cascade.cmd seed` / `cascade.cmd loadtest` wrap the same scripts.
+
 ## Setup
 
 ```bash

@@ -2,6 +2,10 @@
 
 Phase 14. These manifests are for a laptop `kind` cluster — not EKS, GKE, or AKS.
 
+Stop Compose first (`make down` / `cascade.cmd down`) so ports 8080 and 3000 are free.
+
+Full runbook: [`docs/running.md`](../../docs/running.md). Windows: `cascade.cmd kind-up`.
+
 ```bash
 # Docker + kind + kubectl on the host
 make kind-up      # build images, kind load, apply, wait for Gateway

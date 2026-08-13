@@ -1,9 +1,8 @@
 # Architecture
 
 This document mirrors the diagrams and data model in
-[`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (§2, §4) so they're easy to find alongside
-the rest of the design docs and ADRs. The plan is the source of truth if the two ever drift;
-update both together.
+[`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (§2, §4). How to run the stack:
+[`running.md`](running.md). Doc index: [`README.md`](README.md).
 
 ## System architecture
 
@@ -309,8 +308,7 @@ three candidate SQL queries plus one `posts` hydration query. Post Service
 
 ## Running the stack
 
-- **Windows:** `cascade.cmd up` then `cascade.cmd smoke` — [`running-on-windows.md`](running-on-windows.md).
-- **Linux/macOS:** `make up` then `make smoke` (README quickstart).
+See [`running.md`](running.md). Windows PowerShell: [`running-on-windows.md`](running-on-windows.md).
 
 ## Docker Compose (Phase 13)
 
