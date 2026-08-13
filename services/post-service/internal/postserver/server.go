@@ -10,6 +10,7 @@ import (
 	"time"
 
 	postv1 "github.com/AnishK05/cascade-feed-ranking-engine/proto/gen/go/post/v1"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/observability"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/post"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/post-service/internal/repository"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -117,6 +118,7 @@ func (s *Server) GetPosts(ctx context.Context, req *postv1.GetPostsRequest) (*po
 		if err != nil {
 			return nil, rpcError(err, "get posts")
 		}
+		observability.RecordPostgresQuery("get_posts")
 		toCache := make([]post.Post, 0, len(hydrated))
 		for id, p := range hydrated {
 			cached[id] = p

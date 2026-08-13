@@ -136,12 +136,12 @@ migrate-create: ## Create a new migration pair, e.g. `make migrate-create name=a
 	migrate create -ext sql -dir $(MIGRATIONS_DIR) -seq $(name)
 
 # ---------------------------------------------------------------------------
-# Local orchestration (filled in further starting Phase 4/12/13)
+# Local orchestration
 # ---------------------------------------------------------------------------
 
 .PHONY: up
-up: ## Start local infrastructure (Postgres, Redis, Kafka, Prometheus, Grafana).
-	docker compose -f deploy/docker-compose.yml up -d
+up: ## Build and start the full local stack (Phase 13).
+	docker compose -f deploy/docker-compose.yml up -d --build
 
 .PHONY: down
 down: ## Stop local infrastructure started via `make up`.
@@ -155,6 +155,45 @@ kafka-topics: ## Create/verify the Kafka topics used by Cascade.
 kafka-smoke: ## Prove a message can be produced and consumed through Compose Kafka.
 	./scripts/kafka-smoke.sh
 
+.PHONY: smoke
+smoke: ## Create users → follow → create post → wait for fanout → follower GetFeed.
+	python3 scripts/smoke_test.py
+
 .PHONY: warm-cache
 warm-cache: ## Rebuild Redis timelines from Postgres (cold-start cache warming, Phase 8).
 	go run ./services/fanout-worker/cmd/warm-cache
+
+.PHONY: warm-cache-compose
+warm-cache-compose: ## Run cache warming inside Compose (profile: tools).
+	docker compose -f deploy/docker-compose.yml --profile tools run --rm warm-cache
+
+.PHONY: seed
+seed: ## Seed the ci follow-graph into Postgres (`PRESET=full` for 50k users).
+	cd loadtest && \
+	( [ -d .venv ] || python3 -m venv .venv ) && \
+	source .venv/bin/activate && \
+	pip install -q -r requirements.txt && \
+	python seed.py --preset $(or $(PRESET),ci)
+
+.PHONY: loadtest
+loadtest: ## Headless Locust against the Gateway (override USERS/DURATION/HOST).
+	cd loadtest && \
+	( [ -d .venv ] || python3 -m venv .venv ) && \
+	source .venv/bin/activate && \
+	pip install -q -r requirements.txt && \
+	python -m locust -f locustfile.py --headless \
+		--host $(or $(HOST),http://localhost:8080) \
+		-u $(or $(USERS),50) -r $(or $(SPAWN_RATE),10) \
+		-t $(or $(DURATION),30s) \
+		--csv reports/manual --html reports/manual.html --only-summary
+
+.PHONY: benchmark
+benchmark: ## Run one labeled Locust+metrics capture (`LABEL=baseline` or `cached`).
+	cd loadtest && \
+	( [ -d .venv ] || python3 -m venv .venv ) && \
+	source .venv/bin/activate && \
+	pip install -q -r requirements.txt && \
+	python benchmark.py run --label $(or $(LABEL),cached) \
+		--host $(or $(HOST),http://localhost:8080) \
+		--users $(or $(USERS),50) --spawn-rate $(or $(SPAWN_RATE),10) \
+		--duration $(or $(DURATION),30s)

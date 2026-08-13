@@ -40,6 +40,17 @@ func NewMetrics() *Metrics {
 	}
 }
 
+var postgresQueries = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "feed_postgres_queries_total",
+	Help: "PostgreSQL queries issued by Feed Service, labeled by operation.",
+}, []string{"op"})
+
+// RecordPostgresQuery increments the comparison counter used by the Phase 12
+// before/after cache benchmark (IMPLEMENTATION_PLAN.md §13.3).
+func RecordPostgresQuery(op string) {
+	postgresQueries.WithLabelValues(op).Inc()
+}
+
 func (m *Metrics) ObserveGetFeed(duration time.Duration, hits, misses int) {
 	if m == nil {
 		return

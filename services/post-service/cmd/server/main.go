@@ -75,10 +75,16 @@ func main() {
 		_ = metricsServer.Shutdown(shutdownCtx)
 	}()
 
+	var postCache postserver.Cache = cache.New(redisClient, cfg.CacheTTL, cfg.TombstoneTTL)
+	if cfg.BypassCache {
+		logger.Warn("POST_BYPASS_CACHE enabled; GetPosts will skip Redis and query PostgreSQL every time")
+		postCache = cache.NewNoop()
+	}
+
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(observability.UnaryServerInterceptor(logger)))
 	postv1.RegisterPostServiceServer(grpcServer, postserver.New(
 		repository.New(pool),
-		cache.New(redisClient, cfg.CacheTTL, cfg.TombstoneTTL),
+		postCache,
 		events.NewKafka(kafkaClient, cfg.KafkaTopic),
 		logger,
 	))
