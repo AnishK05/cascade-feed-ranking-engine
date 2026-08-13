@@ -17,7 +17,7 @@ MIGRATIONS_DIR := migrations
 
 .PHONY: help
 help: ## Show this help.
-	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
 # ---------------------------------------------------------------------------
 # Codegen
@@ -52,6 +52,10 @@ go-build: ## Build all Go services.
 .PHONY: go-test
 go-test: ## Run all Go unit tests.
 	go test $(GO_PACKAGES)
+
+.PHONY: go-cover
+go-cover: ## Run Go tests with coverage summaries (Phase 16).
+	go test -cover $(GO_PACKAGES)
 
 .PHONY: go-vet
 go-vet: ## Run go vet across all Go services.
@@ -197,3 +201,36 @@ benchmark: ## Run one labeled Locust+metrics capture (`LABEL=baseline` or `cache
 		--host $(or $(HOST),http://localhost:8080) \
 		--users $(or $(USERS),50) --spawn-rate $(or $(SPAWN_RATE),10) \
 		--duration $(or $(DURATION),30s)
+
+# ---------------------------------------------------------------------------
+# Kubernetes (Phase 14) — local kind only
+# ---------------------------------------------------------------------------
+
+.PHONY: k8s-validate
+k8s-validate: ## Validate kind manifests (no cluster required).
+	./scripts/validate_k8s.sh
+
+.PHONY: kind-up
+kind-up: ## Create a local kind cluster, load images, and apply deploy/k8s.
+	./scripts/kind-up.sh
+
+.PHONY: kind-down
+kind-down: ## Delete the local kind cluster.
+	./scripts/kind-down.sh
+
+.PHONY: k8s-smoke
+k8s-smoke: ## Run the Compose smoke test against kind's Gateway NodePort.
+	GATEWAY_URL=http://localhost:8080 python3 scripts/smoke_test.py
+
+.PHONY: k8s-hpa
+k8s-hpa: ## Show Feed Service HPA/deployment status.
+	./scripts/kind-hpa.sh
+
+.PHONY: k8s-chaos
+k8s-chaos: ## Delete a Feed pod and wait for Gateway /api/ping to recover.
+	./scripts/kind-chaos.sh
+
+.PHONY: k8s-warm-cache
+k8s-warm-cache: ## Run the warm-cache Job inside kind.
+	kubectl apply -f deploy/k8s/warm-cache-job.yaml
+	kubectl -n cascade wait --for=condition=complete --timeout=180s job/warm-cache

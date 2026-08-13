@@ -116,6 +116,7 @@ services:
     restart: unless-stopped
 
   post-service:
+    image: cascade/post-service:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.go
@@ -147,6 +148,7 @@ services:
     restart: unless-stopped
 
   feed-service:
+    image: cascade/feed-service:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.go
@@ -177,6 +179,7 @@ services:
     restart: unless-stopped
 
   fanout-worker:
+    image: cascade/fanout-worker:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.go
@@ -205,6 +208,7 @@ services:
     restart: unless-stopped
 
   social-graph-service:
+    image: cascade/social-graph-service:local
     build:
       context: ../services/social-graph-service
       dockerfile: Dockerfile
@@ -230,6 +234,7 @@ services:
     restart: unless-stopped
 
   gateway:
+    image: cascade/gateway:local
     build:
       context: ..
       dockerfile: gateway/Dockerfile
@@ -258,6 +263,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: cascade/frontend:local
     build:
       context: ../frontend
       dockerfile: Dockerfile
@@ -280,6 +286,7 @@ services:
     restart: unless-stopped
 
   warm-cache:
+    image: cascade/warm-cache:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.go

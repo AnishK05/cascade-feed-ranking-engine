@@ -12,6 +12,7 @@ import (
 
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/events"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/fanout"
+	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/itest"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/repository"
 	"github.com/AnishK05/cascade-feed-ranking-engine/services/fanout-worker/internal/timeline"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,15 +23,19 @@ import (
 )
 
 func TestRealBackendsNormalCelebrityAndRedelivery(t *testing.T) {
-	if os.Getenv("FANOUT_INTEGRATION_TEST") != "1" {
-		t.Skip("set FANOUT_INTEGRATION_TEST=1 to run against real Postgres, Redis, and Kafka")
+	var databaseURL, redisAddr string
+	var brokers []string
+	if os.Getenv("FANOUT_INTEGRATION_TEST") == "1" {
+		databaseURL = envOr("DATABASE_URL", "postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable")
+		redisAddr = envOr("REDIS_ADDR", "localhost:6379")
+		brokers = strings.Split(envOr("KAFKA_BROKERS", "localhost:9092"), ",")
+	} else {
+		var brokerList string
+		databaseURL, redisAddr, brokerList = itest.PostgresRedisKafka(t)
+		brokers = strings.Split(brokerList, ",")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-
-	databaseURL := envOr("DATABASE_URL", "postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable")
-	redisAddr := envOr("REDIS_ADDR", "localhost:6379")
-	brokers := strings.Split(envOr("KAFKA_BROKERS", "localhost:9092"), ",")
 
 	var normalID, celebrityID, followerID, normalPostID, celebrityPostID int64
 	pool, err := pgxpool.New(ctx, databaseURL)

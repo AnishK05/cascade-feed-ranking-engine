@@ -11,12 +11,27 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0–13 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
-KRaft, hybrid fanout, the Feed Service read path, heuristic ranking, cache invalidation and
-cold-start warming, the Gateway/BFF with an `X-User-Id` auth stub, the Next.js demo UI,
-Prometheus/Grafana observability, Locust before/after cache benchmarking, and a full Docker
-Compose stack (`make up`). Phase 9.5 (Fanout Worker REST boundary refactor) and Phase 14
-(local `kind` Kubernetes) are not in this tree.
+Phases 0–16 of the roadmap that this repo implements are complete: schema through Compose,
+Locust benchmarking, a local `kind` cluster (`make kind-up`), ADRs, README/resume polish, and
+the testing strategy (unit + Testcontainers integration + smoke + a CI graph-generation
+budget). **Phase 9.5** (Fanout Worker REST boundary) is still deferred on purpose; see
+[ADR 0004](./docs/decisions/0004-fanout-direct-postgres.md).
+
+There is no cloud Kubernetes and no cloud cost.
+
+## Resume line (measured, not a target)
+
+Use only numbers you have actually produced. As of the committed write-up
+([`docs/benchmarks/2026-08-13-cache-comparison.md`](./docs/benchmarks/2026-08-13-cache-comparison.md)):
+
+> Built a Go/gRPC hybrid fanout feed (write-path ZSETs + read-path celebrity merge) with a
+> Zipf seeder that materializes a 50,000-user / 50-celebrity graph (7.84M follow edges in
+> 3.6s) and COPY-loads a 500-user celebrity-scaled dataset into Postgres in 262ms; Redis vs
+> Postgres GetFeed cost is compared via `feed_postgres_queries_total` around Locust — fill in
+> req/s and the reduction % after running the Phase 12 protocol on your machine.
+
+Do not quote the plan's example "8,000 req/s" or "80% cache reduction" until your Locust
+CSV and Prometheus snapshots contain those values.
 
 ## Repository layout
 
@@ -48,6 +63,7 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
 - Node 22+ (for the frontend; not required if you only run the Compose image)
 - Python 3.12+ (for `loadtest/` and `make smoke`)
 - Docker with Compose v2 (`make up` starts the entire stack)
+- `kind` and `kubectl` if you want the Phase 14 local Kubernetes path (`make kind-up`)
 - The [`migrate` CLI](https://github.com/golang-migrate/migrate) for running migrations against
   a host-native Postgres (Compose applies the up SQL files on first boot):
   ```bash
@@ -68,6 +84,9 @@ make kafka-topics    # create/verify all application and DLQ topics
 make kafka-smoke     # create a temporary topic and prove produce -> consume
 make seed            # COPY a power-law follow graph into Postgres (`PRESET=full` for 50k users)
 make warm-cache      # rebuild Redis timelines from Postgres after a cold start
+make kind-up         # local kind cluster (loads Compose images; Gateway on localhost:8080)
+make k8s-smoke       # same smoke test against kind
+make k8s-validate    # kubeconform/kustomize check (no cluster)
 ```
 
 `DATABASE_URL` defaults to `postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable`;
@@ -257,6 +276,47 @@ make benchmark LABEL=baseline
 Set `CELEBRITY_FOLLOWER_THRESHOLD` / `CELEBRITY_THRESHOLD` to the value printed by `seed.py`
 (80 for `--preset ci`, 10000 for `--preset full`) so live fanout agrees with the seeded
 `is_celebrity` flags.
+
+### Local Kubernetes (Phase 14)
+
+`deploy/k8s/` is a kustomize bundle for a **local kind cluster only**. It is not wired to any
+cloud provider.
+
+```bash
+make kind-up       # docker compose build + kind load + apply + wait
+make k8s-smoke     # GATEWAY_URL=http://localhost:8080 make smoke
+make k8s-hpa       # Feed Service HPA 1–4 replicas on CPU
+make k8s-chaos     # delete a feed-service pod; Gateway /api/ping must recover
+make kind-down
+```
+
+Credentials are a Secret; ranking weights and the celebrity threshold are a ConfigMap. App
+images use `imagePullPolicy: Never`. Details: [`deploy/k8s/README.md`](./deploy/k8s/README.md)
+and [ADR 0007](./docs/decisions/0007-local-kind-only.md).
+
+### Testing strategy (Phase 16)
+
+- **Go:** table-driven unit tests (ranking, fanout decision, pagination, cache bypass). Feed
+  Service and Fanout Worker integration tests start Postgres/Redis (and Kafka for fanout)
+  with **testcontainers-go** when Docker is running, and skip otherwise. Post Service still
+  has env-gated Compose tests. `make go-cover` prints coverage.
+- **Java:** `@WebMvcTest` for Gateway controllers; Social Graph uses Testcontainers Postgres.
+- **Smoke:** `scripts/smoke_test.py` is the cross-service regression net (Compose or kind).
+- **Load as a test:** CI asserts the `--preset ci` graph builds in under a second and that
+  ranking 500 posts stays under 50ms. Full Locust against a live Gateway is `make loadtest`,
+  not a default PR check.
+
+### Security (deliberately minimal)
+
+`X-User-Id` is **trivially spoofable**. That is the auth model. Do not put this stack on a
+public address. Demo credentials (`cascade`/`cascade`) live in `.env.example` and a
+Kubernetes Secret named `cascade-db`; do not commit real secrets. Input length limits on
+posts exist so Locust garbage does not crash handlers, not as a security boundary.
+
+### Architecture decision records
+
+[`docs/decisions/`](./docs/decisions/) — Kafka vs Redpanda, hybrid fanout, ZSETs, the deferred
+Fanout REST refactor, the auth stub, heuristic ranking, local-only kind, JSON events.
 
 ### A note on generated code
 
