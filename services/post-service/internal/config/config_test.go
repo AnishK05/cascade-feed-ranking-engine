@@ -43,6 +43,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MetricsAddr != ":9100" {
 		t.Errorf("MetricsAddr = %q, want :9100", cfg.MetricsAddr)
 	}
+	if cfg.BypassCache {
+		t.Error("BypassCache default should be false")
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -51,6 +54,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("KAFKA_TOPIC", "custom-posts")
 	t.Setenv("POST_CACHE_TTL", "45m")
 	t.Setenv("POST_TOMBSTONE_TTL", "12h")
+	t.Setenv("POST_BYPASS_CACHE", "true")
 
 	cfg := Load()
 
@@ -65,6 +69,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.KafkaTopic != "custom-posts" || cfg.CacheTTL != 45*time.Minute || cfg.TombstoneTTL != 12*time.Hour {
 		t.Errorf("topic/TTL = %q/%s/%s", cfg.KafkaTopic, cfg.CacheTTL, cfg.TombstoneTTL)
+	}
+	if !cfg.BypassCache {
+		t.Error("BypassCache should be true when POST_BYPASS_CACHE=true")
 	}
 }
 

@@ -79,11 +79,27 @@ func main() {
 		_ = metricsServer.Shutdown(shutdownCtx)
 	}()
 
+	var candidates feedserver.CandidateStore = candidate.NewRedis(redisClient)
+	var hydrate feedserver.Hydrator = hydrator.NewRedisPost(
+		redisClient, postv1.NewPostServiceClient(postConn), cfg.CacheTTL,
+	)
+	if cfg.BypassCache {
+		logger.Warn("FEED_BYPASS_CACHE enabled; GetFeed will read candidates and post bodies from PostgreSQL")
+		pgCandidates := candidate.NewPostgres(pool)
+		pgCandidates.OnQuery = observability.RecordPostgresQuery
+		pgHydrate := hydrator.NewPostgres(pool)
+		pgHydrate.OnQuery = observability.RecordPostgresQuery
+		candidates = pgCandidates
+		hydrate = pgHydrate
+	}
+	signalStore := signals.NewPostgres(pool, cfg.AffinityWindow, cfg.AffinityDefault)
+	signalStore.OnQuery = observability.RecordPostgresQuery
+
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(observability.UnaryServerInterceptor(logger)))
 	feedv1.RegisterFeedServiceServer(grpcServer, feedserver.New(
-		candidate.NewRedis(redisClient),
-		hydrator.NewRedisPost(redisClient, postv1.NewPostServiceClient(postConn), cfg.CacheTTL),
-		signals.NewPostgres(pool, cfg.AffinityWindow, cfg.AffinityDefault),
+		candidates,
+		hydrate,
+		signalStore,
 		ranking.NewHeuristic(ranking.Weights{
 			Recency: cfg.RecencyWeight, Engagement: cfg.EngagementWeight,
 			Affinity: cfg.AffinityWeight, HalfLife: cfg.RecencyHalfLife,

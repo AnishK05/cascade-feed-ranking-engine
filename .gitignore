@@ -27,6 +27,9 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+loadtest/data/
+loadtest/reports/*
+!loadtest/reports/.gitkeep
 
 # --- Editors / OS ---
 .DS_Store

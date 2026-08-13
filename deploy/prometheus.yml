@@ -5,18 +5,18 @@ global:
 scrape_configs:
   - job_name: feed-service
     static_configs:
-      - targets: ["host.docker.internal:9101"]
+      - targets: ["feed-service:9101"]
   - job_name: post-service
     static_configs:
-      - targets: ["host.docker.internal:9100"]
+      - targets: ["post-service:9100"]
   - job_name: fanout-worker
     static_configs:
-      - targets: ["host.docker.internal:9102"]
+      - targets: ["fanout-worker:9102"]
   - job_name: gateway
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:8080"]
+      - targets: ["gateway:8080"]
   - job_name: social-graph-service
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:8081"]
+      - targets: ["social-graph-service:8081"]

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +35,10 @@ type Config struct {
 	AffinityDefault  float64
 	StartupTimeout   time.Duration
 	MetricsAddr      string
+	// BypassCache skips Redis timelines and the post cache so GetFeed reads
+	// candidates and post bodies from PostgreSQL. Used for the Phase 12 baseline
+	// benchmark (IMPLEMENTATION_PLAN.md §13.3).
+	BypassCache bool
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -44,6 +49,7 @@ func Load() (Config, error) {
 		RedisAddr:       getEnv("REDIS_ADDR", "localhost:6379"),
 		PostServiceAddr: getEnv("POST_SERVICE_ADDR", "localhost:9090"),
 		MetricsAddr:     getEnv("FEED_METRICS_ADDR", ":9101"),
+		BypassCache:     boolEnv("FEED_BYPASS_CACHE", false),
 	}
 	var err error
 	if cfg.DefaultPageSize, err = int32Env("FEED_DEFAULT_PAGE_SIZE", 20); err != nil {
@@ -129,4 +135,16 @@ func durationEnv(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
 	return value, nil
+}
+
+func boolEnv(key string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(getEnv(key, "")))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

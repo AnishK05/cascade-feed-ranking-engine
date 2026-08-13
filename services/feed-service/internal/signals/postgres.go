@@ -19,6 +19,7 @@ type Postgres struct {
 	affinityWindow  time.Duration
 	affinityDefault float64
 	now             func() time.Time
+	OnQuery         func(op string)
 }
 
 func NewPostgres(db querier, affinityWindow time.Duration, affinityDefault float64) *Postgres {
@@ -55,6 +56,7 @@ func (p *Postgres) Load(ctx context.Context, viewerID int64, posts []feed.Post) 
 	if err != nil {
 		return nil, fmt.Errorf("load engagement counts: %w", err)
 	}
+	p.observe("signals")
 	for rows.Next() {
 		var postID, likes, comments int64
 		if err := rows.Scan(&postID, &likes, &comments); err != nil {
@@ -87,6 +89,7 @@ func (p *Postgres) Load(ctx context.Context, viewerID int64, posts []feed.Post) 
 	if err != nil {
 		return nil, fmt.Errorf("load viewer-author affinity: %w", err)
 	}
+	p.observe("signals")
 	affinity := make(map[int64]float64, len(authorIDs))
 	for rows.Next() {
 		var authorID int64
@@ -111,4 +114,10 @@ func (p *Postgres) Load(ctx context.Context, viewerID int64, posts []feed.Post) 
 		}
 	}
 	return result, nil
+}
+
+func (p *Postgres) observe(op string) {
+	if p != nil && p.OnQuery != nil {
+		p.OnQuery(op)
+	}
 }

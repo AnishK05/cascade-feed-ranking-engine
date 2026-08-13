@@ -30,6 +30,9 @@ type Config struct {
 	TombstoneTTL time.Duration
 	// MetricsAddr is the bind address for the Prometheus /metrics HTTP server.
 	MetricsAddr string
+	// BypassCache skips the Redis post cache so GetPosts always queries PostgreSQL.
+	// Used for the Phase 12 baseline benchmark (IMPLEMENTATION_PLAN.md §13.3).
+	BypassCache bool
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -51,6 +54,7 @@ func Load() Config {
 		CacheTTL:     cacheTTL,
 		TombstoneTTL: tombstoneTTL,
 		MetricsAddr:  getEnv("POST_METRICS_ADDR", ":9100"),
+		BypassCache:  boolEnv("POST_BYPASS_CACHE", false),
 	}
 }
 
@@ -76,4 +80,16 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func boolEnv(key string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(getEnv(key, "")))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

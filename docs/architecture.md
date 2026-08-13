@@ -288,7 +288,31 @@ post is observed in another user's feed. `/graph` follow/unfollows other seeded 
 
 Request IDs originate at the Gateway (`X-Request-Id`) and propagate to Post/Feed over gRPC
 metadata and to Social Graph over HTTP. Each service logs JSON (Go `slog`, Spring Boot ECS)
-including that ID. Prometheus scrapes host-native Go `/metrics` ports 9100-9102 and Java
-`/actuator/prometheus` endpoints through `host.docker.internal`. Grafana on port 3001 loads a
-provisioned dashboard for feed req/sec, latency percentiles, cache hit ratio, fanout lag, and
-Kafka consumer lag. Jaeger tracing is intentionally out of scope.
+including that ID. Prometheus scrapes Compose service names (`feed-service:9101`,
+`post-service:9100`, `fanout-worker:9102`, `gateway:8080`, `social-graph-service:8081`).
+Grafana on port 3001 loads a provisioned dashboard for feed req/sec, latency percentiles,
+cache hit ratio, fanout lag, and Kafka consumer lag. Jaeger tracing is intentionally out of
+scope.
+
+## Load testing (Phase 12)
+
+`loadtest/seed.py` builds a power-law follow graph with `COPY` (not REST). `--preset full` is
+the 50k-user plan dataset; `--preset ci` scales celebrity follower counts and the celebrity
+threshold so the hybrid path still exists on 500 users. Locust's `CascadeUser` calls
+`GET /api/feed` and `POST /api/posts` at 100:1 using seeded `X-User-Id` values.
+
+Feed Service `FEED_BYPASS_CACHE=true` swaps Redis timeline reads and Redis/Post hydration for
+three candidate SQL queries plus one `posts` hydration query. Post Service
+`POST_BYPASS_CACHE=true` makes `GetPosts` skip Redis. The comparison metric is
+`feed_postgres_queries_total` / `post_postgres_queries_total` scraped around each Locust run
+(`loadtest/benchmark.py`). Write-ups live under `docs/benchmarks/`.
+
+## Docker Compose (Phase 13)
+
+`deploy/docker-compose.yml` runs the data plane and every application process. App images are
+multi-stage (Go toolchain + `protoc` for gitignored stubs; Maven Wrapper for Java; Next.js
+`output: "standalone"`). `depends_on: condition: service_healthy` (and kafka-init
+`service_completed_successfully`) keeps services from crash-looping on a cold Kafka/Postgres.
+`scripts/smoke_test.py` (`make smoke`) is the one-command proof: two users, a follow, a post,
+then poll the follower feed until fanout lands. `warm-cache` is a Compose `tools` profile so
+`make up` does not run it as a long-lived service.

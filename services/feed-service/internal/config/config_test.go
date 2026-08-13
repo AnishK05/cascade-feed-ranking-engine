@@ -28,6 +28,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MetricsAddr != ":9101" {
 		t.Errorf("MetricsAddr = %q, want :9101", cfg.MetricsAddr)
 	}
+	if cfg.BypassCache {
+		t.Error("BypassCache default should be false")
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -35,6 +38,7 @@ func TestLoadOverrides(t *testing.T) {
 
 	t.Setenv("FEED_CANDIDATE_POOL_SIZE", "321")
 	t.Setenv("FEED_RECENCY_HALF_LIFE", "8h")
+	t.Setenv("FEED_BYPASS_CACHE", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -46,6 +50,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.CandidatePool != 321 || cfg.RecencyHalfLife.String() != "8h0m0s" {
 		t.Errorf("numeric overrides not loaded: %+v", cfg)
+	}
+	if !cfg.BypassCache {
+		t.Error("BypassCache should be true when FEED_BYPASS_CACHE=true")
 	}
 }
 

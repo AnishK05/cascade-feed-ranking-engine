@@ -11,11 +11,12 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0-11 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
+Phases 0–13 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
 KRaft, hybrid fanout, the Feed Service read path, heuristic ranking, cache invalidation and
-cold-start warming, the Gateway/BFF with an `X-User-Id` auth stub, the Next.js demo UI, and
-Prometheus/Grafana observability. Phase 9.5 (Fanout Worker REST boundary refactor) and Phase 12
-(load testing) are next.
+cold-start warming, the Gateway/BFF with an `X-User-Id` auth stub, the Next.js demo UI,
+Prometheus/Grafana observability, Locust before/after cache benchmarking, and a full Docker
+Compose stack (`make up`). Phase 9.5 (Fanout Worker REST boundary refactor) and Phase 14
+(local `kind` Kubernetes) are not in this tree.
 
 ## Repository layout
 
@@ -44,10 +45,11 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
   ```
-- Node 22+ (for the frontend)
-- Python 3.12+ (for `loadtest/`)
-- PostgreSQL (for running migrations; Docker Compose support for this lands in a later phase)
-- The [`migrate` CLI](https://github.com/golang-migrate/migrate) for running migrations:
+- Node 22+ (for the frontend; not required if you only run the Compose image)
+- Python 3.12+ (for `loadtest/` and `make smoke`)
+- Docker with Compose v2 (`make up` starts the entire stack)
+- The [`migrate` CLI](https://github.com/golang-migrate/migrate) for running migrations against
+  a host-native Postgres (Compose applies the up SQL files on first boot):
   ```bash
   go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@latest
   ```
@@ -60,9 +62,11 @@ make proto          # generate Go + Java stubs from proto/*.proto (do this befor
 make build          # generate stubs, then build every Go/Java service
 make test           # run the full test suite (Go, Java, Python) — mirrors CI
 make migrate-up      # apply all SQL migrations to $DATABASE_URL
-make up              # start PostgreSQL, Redis, and Kafka (KRaft; no ZooKeeper)
+make up              # build and start the full stack (Postgres, Redis, Kafka, all services, UI)
+make smoke           # create users → follow → create post → wait until the follower feed shows it
 make kafka-topics    # create/verify all application and DLQ topics
 make kafka-smoke     # create a temporary topic and prove produce -> consume
+make seed            # COPY a power-law follow graph into Postgres (`PRESET=full` for 50k users)
 make warm-cache      # rebuild Redis timelines from Postgres after a cold start
 ```
 
@@ -209,12 +213,50 @@ cd frontend && npm install && npm run dev
 Every service exposes Prometheus metrics. Go services bind `/metrics` on 9100/9101/9102; Java
 services expose `/actuator/prometheus` on their HTTP ports. The Gateway stamps `X-Request-Id`
 (or generates one) and forwards it as gRPC metadata `x-request-id` and as an HTTP header to
-Social Graph, so one ID greps across JSON logs. Compose starts Prometheus and Grafana;
-Grafana is provisioned with the Cascade Feed dashboard (anonymous viewer, or `admin`/`admin`).
+Social Graph, so one ID greps across JSON logs. Compose Prometheus scrapes the **container**
+names (`feed-service:9101`, `gateway:8080`, …). Grafana on 3001 is provisioned with the
+Cascade Feed dashboard (anonymous viewer, or `admin`/`admin`).
+
+### Full Docker Compose (Phase 13)
+
+`make up` builds and starts Postgres, Redis, Kafka (KRaft), Post/Feed/Fanout, Social Graph,
+Gateway, the Next.js UI, Prometheus, and Grafana. Browser calls still use
+`http://localhost:8080` (`NEXT_PUBLIC_API_BASE` is baked into the frontend image at build
+time). After the stack is healthy:
 
 ```bash
-make up   # now also starts Prometheus and Grafana
+make smoke           # create-post → Kafka fanout → follower GetFeed
+make seed            # default `--preset ci` (500 users); `make seed PRESET=full` for 50k
+make warm-cache-compose
 ```
+
+`docker compose -f deploy/docker-compose.yml up -d --wait postgres redis kafka` still starts
+only the data plane (CI Kafka smoke does this and must not build app images).
+
+### Load testing (Phase 12)
+
+`loadtest/seed.py` COPY-inserts a Zipf follow graph. `loadtest/locustfile.py` hits Gateway
+`GET /api/feed` vs `POST /api/posts` at **100:1**. The cache comparison is:
+
+1. Seed + `make warm-cache`.
+2. Baseline: `FEED_BYPASS_CACHE=true` (Feed reads candidates and post bodies from Postgres).
+3. Cached: `FEED_BYPASS_CACHE=false` after warming Redis.
+4. Reduction = `1 − (Postgres QPS with cache ÷ Postgres QPS baseline)` on
+   `feed_postgres_queries_total{op="candidates|hydrate"}` (and `post_postgres_queries_total`
+   when GetPosts is on the path).
+
+Protocol, machine specs, and measured numbers:
+[`docs/benchmarks/2026-08-13-cache-comparison.md`](./docs/benchmarks/2026-08-13-cache-comparison.md).
+
+```bash
+make loadtest USERS=50 DURATION=30s
+# or the scrape-around-Locust helper:
+make benchmark LABEL=baseline
+```
+
+Set `CELEBRITY_FOLLOWER_THRESHOLD` / `CELEBRITY_THRESHOLD` to the value printed by `seed.py`
+(80 for `--preset ci`, 10000 for `--preset full`) so live fanout agrees with the seeded
+`is_celebrity` flags.
 
 ### A note on generated code
 
