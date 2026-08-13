@@ -59,6 +59,28 @@ func TestHydrateCacheHitsMissesOneBatchAndBackfill(t *testing.T) {
 	}
 }
 
+func TestHydrateSkipsTombstonedPostsEvenIfCached(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	cached, _ := json.Marshal(cachedPost{ID: 1, AuthorID: 10, Content: "deleted", CreatedAtUnixMs: now.UnixMilli()})
+	server.Set("post:1", string(cached))
+	server.SAdd("tombstones", "1", "2")
+	posts := &fakePostClient{err: errors.New("must not hydrate tombstones")}
+
+	got, err := NewRedisPost(client, posts, time.Hour).Hydrate(context.Background(), []int64{1, 2})
+	if err != nil {
+		t.Fatalf("Hydrate() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Hydrate() = %+v, want empty after tombstone filter", got)
+	}
+	if posts.calls != 0 {
+		t.Fatalf("Post Service calls = %d, want 0", posts.calls)
+	}
+}
+
 func TestHydrateAllHitsAvoidsPostService(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

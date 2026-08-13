@@ -14,8 +14,9 @@ import (
 const tombstonesKey = "tombstones"
 
 type Redis struct {
-	client *redis.Client
-	ttl    time.Duration
+	client       *redis.Client
+	ttl          time.Duration
+	tombstoneTTL time.Duration
 }
 
 type value struct {
@@ -26,8 +27,11 @@ type value struct {
 	CreatedAtUnixMs int64  `json:"createdAtUnixMs"`
 }
 
-func New(client *redis.Client, ttl time.Duration) *Redis {
-	return &Redis{client: client, ttl: ttl}
+func New(client *redis.Client, ttl, tombstoneTTL time.Duration) *Redis {
+	if tombstoneTTL <= 0 {
+		tombstoneTTL = 24 * time.Hour
+	}
+	return &Redis{client: client, ttl: ttl, tombstoneTTL: tombstoneTTL}
 }
 
 func key(id int64) string {
@@ -104,6 +108,10 @@ func (c *Redis) DeleteAndTombstone(ctx context.Context, postID int64) error {
 	pipe := c.client.TxPipeline()
 	pipe.Del(ctx, key(postID))
 	pipe.SAdd(ctx, tombstonesKey, strconv.FormatInt(postID, 10))
+	// Refresh the whole-set TTL on every delete so recently-deleted IDs outlast
+	// MAX_TIMELINE_LEN turnover (IMPLEMENTATION_PLAN.md §7.4). Soft-deleted rows
+	// remain the fallback once the set expires.
+	pipe.Expire(ctx, tombstonesKey, c.tombstoneTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("invalidate deleted post: %w", err)
 	}

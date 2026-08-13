@@ -11,9 +11,10 @@ full architecture, rationale, and a decisions log for every non-obvious design c
 
 ## Status
 
-Phases 0-7 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
-KRaft, hybrid fanout, the Feed Service read path, and configurable heuristic ranking. Phase 8
-(cache invalidation/warming hardening) is next.
+Phases 0-9 are complete: repository/schema bootstrap, Social Graph and Post services, Kafka
+KRaft, hybrid fanout, the Feed Service read path, heuristic ranking, cache invalidation and
+cold-start warming, and the Gateway/BFF with an `X-User-Id` auth stub. Phase 9.5 (Fanout Worker
+REST boundary refactor) is next.
 
 ## Repository layout
 
@@ -61,6 +62,7 @@ make migrate-up      # apply all SQL migrations to $DATABASE_URL
 make up              # start PostgreSQL, Redis, and Kafka (KRaft; no ZooKeeper)
 make kafka-topics    # create/verify all application and DLQ topics
 make kafka-smoke     # create a temporary topic and prove produce -> consume
+make warm-cache      # rebuild Redis timelines from Postgres after a cold start
 ```
 
 `DATABASE_URL` defaults to `postgres://cascade:cascade@localhost:5432/cascade?sslmode=disable`;
@@ -74,6 +76,7 @@ override it by exporting `DATABASE_URL` or passing it inline, e.g.
 ```text
 POST   /users
 GET    /users/{id}
+GET    /users?ids=1,2,3
 POST   /follows
 DELETE /follows/{followerId}/{followeeId}
 GET    /users/{id}/followers?cursor=&limit=
@@ -136,6 +139,51 @@ keyset cursor. Configure the service with `FEED_SERVICE_GRPC_PORT`, `DATABASE_UR
 `REDIS_ADDR`, `POST_SERVICE_ADDR`, `FEED_CANDIDATE_POOL_SIZE`, page-size settings,
 `FEED_POST_CACHE_TTL`, the three `FEED_*_WEIGHT` variables, `FEED_RECENCY_HALF_LIFE`,
 `FEED_AFFINITY_WINDOW`, and `FEED_AFFINITY_DEFAULT`.
+
+### Cache invalidation and warming (Phase 8)
+
+Deletes do not walk every follower ZSET. Post Service immediately drops `post:{id}` and adds
+the ID to a global Redis `tombstones` set (TTL 24h by default, refreshed on each delete). Feed
+Service filters that set on both candidate load and hydration, so the next `GetFeed` after a
+delete omits the post even if it is still sitting in a timeline ZSET. Fanout Worker also writes
+the same tombstone when it consumes `PostDeleted`, which covers the case where the original
+cache side effect was lost.
+
+New follows of normal accounts backfill recent posts into `timeline:{followerId}` immediately
+(Fanout Worker). After a Redis restart, rebuild those keys from Postgres:
+
+```bash
+make warm-cache
+```
+
+`TOMBSTONE_TTL` / `POST_TOMBSTONE_TTL` (default `24h`) should outlast typical
+`MAX_TIMELINE_LEN` turnover. Soft-deleted Postgres rows remain the fallback once a tombstone
+expires.
+
+### API Gateway / BFF (`gateway/`, port `8080`)
+
+The frontend talks only to the Gateway. It translates HTTP/JSON into gRPC calls to Post/Feed
+Service and REST calls to Social Graph Service. There is no real authentication: send
+`X-User-Id` as the simulated viewer. That header is trivially spoofable by design.
+
+```text
+GET    /api/feed?pageToken=&pageSize=     X-User-Id required; hydrates author display names
+POST   /api/posts                         X-User-Id is the author; response is prependable
+DELETE /api/posts/{id}                    X-User-Id must be the author
+GET    /api/posts?ids=1,2,3
+POST   /api/users                         no auth (creates a simulated identity)
+GET    /api/users/{id}
+POST   /api/follows                       X-User-Id is the follower; body `{ "followeeId": N }`
+DELETE /api/follows/{followeeId}          X-User-Id is the follower
+GET    /api/users/{id}/followers
+GET    /api/users/{id}/following
+GET    /api/ping
+```
+
+Configure with `GATEWAY_PORT`, `POST_SERVICE_ADDR`, `FEED_SERVICE_ADDR`,
+`SOCIAL_GRAPH_BASE_URL`, `CORS_ALLOWED_ORIGINS`, and `GATEWAY_GRPC_DEADLINE`. Create-post
+responses include `postId` / `authorId` / `createdAtUnixMs` so the author's own client can
+optimistically prepend the new post while follower feeds catch up through Kafka.
 
 ### A note on generated code
 

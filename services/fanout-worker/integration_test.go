@@ -108,7 +108,7 @@ func TestRealBackendsNormalCelebrityAndRedelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := repository.NewPostgres(pool)
-	timelines := timeline.NewRedis(redisClient, time.Minute)
+	timelines := timeline.NewRedis(redisClient, time.Minute, 24*time.Hour)
 	processor := fanout.NewProcessor(repo, timelines, fanout.Settings{
 		PostTopic: postTopic, FollowTopic: followTopic,
 		CelebrityFollowerThreshold: 2, MaxTimelineLen: 10,

@@ -154,3 +154,7 @@ kafka-topics: ## Create/verify the Kafka topics used by Cascade.
 .PHONY: kafka-smoke
 kafka-smoke: ## Prove a message can be produced and consumed through Compose Kafka.
 	./scripts/kafka-smoke.sh
+
+.PHONY: warm-cache
+warm-cache: ## Rebuild Redis timelines from Postgres (cold-start cache warming, Phase 8).
+	go run ./services/fanout-worker/cmd/warm-cache

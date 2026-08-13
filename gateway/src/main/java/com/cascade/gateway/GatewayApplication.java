@@ -1,7 +1,9 @@
 package com.cascade.gateway;
 
+import com.cascade.gateway.config.GatewayProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * Entry point for the API Gateway / BFF. See IMPLEMENTATION_PLAN.md §5.5 for the service's
@@ -9,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Post/Feed Service and REST calls to the Social Graph Service, and the auth stub.
  */
 @SpringBootApplication
+@EnableConfigurationProperties(GatewayProperties.class)
 public class GatewayApplication {
 
   public static void main(String[] args) {

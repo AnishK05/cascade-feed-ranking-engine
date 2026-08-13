@@ -1,8 +1,14 @@
 package com.cascade.socialgraph.user;
 
+import com.cascade.socialgraph.api.BadRequestException;
 import com.cascade.socialgraph.api.ConflictException;
 import com.cascade.socialgraph.api.NotFoundException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +38,34 @@ public class UserService {
   @Transactional(readOnly = true)
   public UserResponse get(long id) {
     return UserResponse.from(requireUser(id));
+  }
+
+  @Transactional(readOnly = true)
+  public List<UserResponse> getMany(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) {
+      return List.of();
+    }
+    if (ids.size() > 100) {
+      throw new BadRequestException("ids must contain at most 100 values");
+    }
+    LinkedHashSet<Long> unique = new LinkedHashSet<>();
+    for (Long id : ids) {
+      if (id == null || id <= 0) {
+        throw new BadRequestException("ids must contain only positive IDs");
+      }
+      unique.add(id);
+    }
+    Map<Long, User> found =
+        userRepository.findAllById(unique).stream()
+            .collect(Collectors.toMap(User::getId, Function.identity()));
+    List<UserResponse> result = new ArrayList<>();
+    for (Long id : unique) {
+      User user = found.get(id);
+      if (user != null) {
+        result.add(UserResponse.from(user));
+      }
+    }
+    return result;
   }
 
   @Transactional(readOnly = true)

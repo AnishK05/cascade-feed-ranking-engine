@@ -13,6 +13,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	tombstonesKey = "tombstones"
+)
+
 type RedisPost struct {
 	redis *redis.Client
 	posts postv1.PostServiceClient
@@ -32,8 +36,14 @@ func NewRedisPost(redisClient *redis.Client, postClient postv1.PostServiceClient
 }
 
 // Hydrate uses one Redis MGET and, when needed, exactly one PostService.GetPosts call.
+// Tombstoned IDs are dropped before cache reads so a delete is visible on the next
+// hydration even if `post:{id}` was not yet evicted.
 func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Post, error) {
 	ids = unique(ids)
+	ids, err := h.withoutTombstones(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	if len(ids) == 0 {
 		return map[int64]feed.Post{}, nil
 	}
@@ -102,6 +112,28 @@ func (h *RedisPost) Hydrate(ctx context.Context, ids []int64) (map[int64]feed.Po
 		return nil, err
 	}
 	return result, nil
+}
+
+func (h *RedisPost) withoutTombstones(ctx context.Context, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return ids, nil
+	}
+	members := make([]any, len(ids))
+	for i, id := range ids {
+		members[i] = strconv.FormatInt(id, 10)
+	}
+	tombstoned, err := h.redis.SMIsMember(ctx, tombstonesKey, members...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("read tombstones: %w", err)
+	}
+	live := make([]int64, 0, len(ids))
+	for i, id := range ids {
+		if i < len(tombstoned) && tombstoned[i] {
+			continue
+		}
+		live = append(live, id)
+	}
+	return live, nil
 }
 
 func (h *RedisPost) backfill(ctx context.Context, posts []cachedPost) error {

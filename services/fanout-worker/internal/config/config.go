@@ -33,12 +33,16 @@ type Config struct {
 	MaxTimelineLen int64
 	// BackfillCount is how many of a followee's recent posts get backfilled into a new
 	// follower's timeline on FollowCreated (cache warming, §7.3).
-	BackfillCount         int64
-	FanoutBatchSize       int
-	MaxRetries            int
-	RetryBackoff          time.Duration
+	BackfillCount   int64
+	FanoutBatchSize int
+	MaxRetries      int
+	RetryBackoff    time.Duration
+	// FollowerCountCacheTTL is the lifetime of the short-lived celebrity-check cache.
 	FollowerCountCacheTTL time.Duration
-	StartupTimeout        time.Duration
+	// TombstoneTTL is how long deleted post IDs stay in the global Redis tombstones
+	// set used by Feed Service at read time (IMPLEMENTATION_PLAN.md §7.4).
+	TombstoneTTL   time.Duration
+	StartupTimeout time.Duration
 }
 
 // Load reads configuration from the environment, applying defaults for any unset variable.
@@ -61,6 +65,7 @@ func Load() Config {
 		MaxRetries:                 getEnvNonNegativeInt("MAX_RETRIES", 3),
 		RetryBackoff:               getEnvDuration("RETRY_BACKOFF", 250*time.Millisecond),
 		FollowerCountCacheTTL:      getEnvDuration("FOLLOWER_COUNT_CACHE_TTL", time.Minute),
+		TombstoneTTL:               getEnvDuration("TOMBSTONE_TTL", 24*time.Hour),
 		StartupTimeout:             getEnvDuration("STARTUP_TIMEOUT", 5*time.Second),
 	}
 }

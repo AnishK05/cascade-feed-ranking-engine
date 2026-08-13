@@ -70,7 +70,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 	postv1.RegisterPostServiceServer(grpcServer, postserver.New(
 		repository.New(pool),
-		cache.New(redisClient, cfg.CacheTTL),
+		cache.New(redisClient, cfg.CacheTTL, cfg.TombstoneTTL),
 		events.NewKafka(kafkaClient, cfg.KafkaTopic),
 		logger,
 	))

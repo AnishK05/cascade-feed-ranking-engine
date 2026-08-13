@@ -12,6 +12,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("KAFKA_BROKERS", "")
 	t.Setenv("KAFKA_TOPIC", "")
 	t.Setenv("POST_CACHE_TTL", "")
+	t.Setenv("POST_TOMBSTONE_TTL", "")
 
 	cfg := Load()
 
@@ -36,6 +37,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.CacheTTL != 6*time.Hour {
 		t.Errorf("CacheTTL = %s, want 6h", cfg.CacheTTL)
 	}
+	if cfg.TombstoneTTL != 24*time.Hour {
+		t.Errorf("TombstoneTTL = %s, want 24h", cfg.TombstoneTTL)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -43,6 +47,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("KAFKA_BROKERS", " kafka-1:9092, kafka-2:9092 ,,")
 	t.Setenv("KAFKA_TOPIC", "custom-posts")
 	t.Setenv("POST_CACHE_TTL", "45m")
+	t.Setenv("POST_TOMBSTONE_TTL", "12h")
 
 	cfg := Load()
 
@@ -55,14 +60,19 @@ func TestLoadOverrides(t *testing.T) {
 	if got := cfg.Brokers(); len(got) != 2 || got[0] != "kafka-1:9092" || got[1] != "kafka-2:9092" {
 		t.Errorf("Brokers() = %v", got)
 	}
-	if cfg.KafkaTopic != "custom-posts" || cfg.CacheTTL != 45*time.Minute {
-		t.Errorf("topic/TTL = %q/%s", cfg.KafkaTopic, cfg.CacheTTL)
+	if cfg.KafkaTopic != "custom-posts" || cfg.CacheTTL != 45*time.Minute || cfg.TombstoneTTL != 12*time.Hour {
+		t.Errorf("topic/TTL = %q/%s/%s", cfg.KafkaTopic, cfg.CacheTTL, cfg.TombstoneTTL)
 	}
 }
 
 func TestLoadInvalidTTLUsesDefault(t *testing.T) {
 	t.Setenv("POST_CACHE_TTL", "not-a-duration")
-	if got := Load().CacheTTL; got != 6*time.Hour {
-		t.Errorf("CacheTTL = %s, want 6h", got)
+	t.Setenv("POST_TOMBSTONE_TTL", "nope")
+	cfg := Load()
+	if cfg.CacheTTL != 6*time.Hour {
+		t.Errorf("CacheTTL = %s, want 6h", cfg.CacheTTL)
+	}
+	if cfg.TombstoneTTL != 24*time.Hour {
+		t.Errorf("TombstoneTTL = %s, want 24h", cfg.TombstoneTTL)
 	}
 }

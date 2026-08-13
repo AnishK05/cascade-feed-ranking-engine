@@ -32,7 +32,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Errorf("unexpected topic defaults: %+v", cfg)
 	}
 	if cfg.FanoutBatchSize != 500 || cfg.MaxRetries != 3 ||
-		cfg.RetryBackoff != 250*time.Millisecond || cfg.FollowerCountCacheTTL != time.Minute {
+		cfg.RetryBackoff != 250*time.Millisecond || cfg.FollowerCountCacheTTL != time.Minute ||
+		cfg.TombstoneTTL != 24*time.Hour {
 		t.Errorf("unexpected processing defaults: %+v", cfg)
 	}
 }

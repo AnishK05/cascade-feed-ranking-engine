@@ -15,7 +15,7 @@ func newTestRedis(t *testing.T) (*Redis, *redis.Client) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	return NewRedis(client, time.Minute), client
+	return NewRedis(client, time.Minute, 24*time.Hour), client
 }
 
 func TestFanoutPostIsIdempotentAndTrims(t *testing.T) {
@@ -72,6 +72,9 @@ func TestCelebrityPostBackfillTombstoneAndFollowSets(t *testing.T) {
 	if got := client.SCard(ctx, tombstonesKey).Val(); got != 1 {
 		t.Errorf("tombstone count = %d, want 1", got)
 	}
+	if ttl, err := client.TTL(ctx, tombstonesKey).Result(); err != nil || ttl != 24*time.Hour {
+		t.Errorf("tombstones TTL = %s, err %v, want 24h", ttl, err)
+	}
 	if err := timelines.AddCelebrityFollow(ctx, 10, 20); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +83,41 @@ func TestCelebrityPostBackfillTombstoneAndFollowSets(t *testing.T) {
 	}
 	if client.SIsMember(ctx, "following:celebrities:10", "20").Val() {
 		t.Error("celebrity follow marker was not removed")
+	}
+}
+
+func TestWarmUsersReplacesTimelinesAndCelebritySets(t *testing.T) {
+	ctx := context.Background()
+	timelines, client := newTestRedis(t)
+	if err := client.ZAdd(ctx, "timeline:1", redis.Z{Score: 1, Member: "stale"}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := timelines.DeleteWarmableKeys(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if client.Exists(ctx, "timeline:1").Val() != 0 {
+		t.Fatal("stale timeline survived reset")
+	}
+	err := timelines.WarmUsers(ctx, []UserWarmState{{
+		UserID:        1,
+		FollowerCount: 4,
+		TimelinePosts: []repository.Post{{ID: 8, CreatedAtUnixMs: 80}, {ID: 9, CreatedAtUnixMs: 90}},
+		CelebrityIDs:  []int64{50},
+	}}, 10, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.ZRange(ctx, "timeline:1", 0, -1).Val(); len(got) != 2 || got[1] != "9" {
+		t.Errorf("warmed timeline = %#v", got)
+	}
+	if !client.SIsMember(ctx, "following:celebrities:1", "50").Val() {
+		t.Error("celebrity follow set was not warmed")
+	}
+	if err := timelines.ReplaceCelebrityPosts(ctx, []repository.Post{{ID: 70, CreatedAtUnixMs: 70}}, 10); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.ZRange(ctx, celebrityPostsKey, 0, -1).Val(); len(got) != 1 || got[0] != "70" {
+		t.Errorf("celebrity posts = %#v", got)
 	}
 }
 
