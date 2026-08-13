@@ -5,20 +5,13 @@ home feed / timeline), built as an undergrad systems-design learning project. It
 serving path — fanout-on-write vs fanout-on-read, distributed caching, ranking, and
 latency/throughput under simulated load — not on building a full social app.
 
-**Start here:** [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) is the detailed design doc
-and phase-by-phase roadmap for this project. Everything below is a quick-start; the plan has the
-full architecture, rationale, and a decisions log for every non-obvious design choice.
+**Start here to run it:** [`docs/running.md`](./docs/running.md) (Windows, Linux, and macOS).
+On Windows, `cascade.cmd up` then `cascade.cmd smoke` — details in
+[`docs/running-on-windows.md`](./docs/running-on-windows.md). Then open
+http://localhost:3000 and follow [`docs/demo.md`](./docs/demo.md).
 
-**Windows:** Docker Desktop + PowerShell or cmd. From the repo root:
-
-```bat
-cascade.cmd up
-cascade.cmd smoke
-```
-
-Then open http://localhost:3000 . Full walkthrough and error table:
-[`docs/running-on-windows.md`](./docs/running-on-windows.md). You do not need Make,
-Git Bash, or an Ubuntu terminal to run the demo.
+**Design:** [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) is the phase-by-phase
+roadmap. Doc index: [`docs/README.md`](./docs/README.md).
 
 ## Status
 
@@ -59,7 +52,7 @@ loadtest/               Python — dataset seeding + Locust load tests
 frontend/               Next.js + TypeScript — demo UI and admin metrics dashboard
 migrations/             SQL migrations (applied with golang-migrate)
 deploy/                 Docker Compose + Kubernetes manifests
-docs/                   Architecture notes, benchmark write-ups, ADRs
+docs/                   Architecture notes, runbooks, benchmark write-ups, ADRs
 ```
 
 ## Prerequisites
@@ -85,7 +78,11 @@ docs/                   Architecture notes, benchmark write-ups, ADRs
 
 ## Quickstart
 
-**Windows (PowerShell or cmd):** [`docs/running-on-windows.md`](./docs/running-on-windows.md)
+Full runbook (install, smoke, UI, seed, kind, troubleshooting):
+[`docs/running.md`](./docs/running.md). Windows-only notes:
+[`docs/running-on-windows.md`](./docs/running-on-windows.md).
+
+**Windows (PowerShell or cmd):**
 
 ```bat
 cascade.cmd up
@@ -95,7 +92,15 @@ cascade.cmd smoke
 **Linux / macOS:**
 
 ```bash
-make help          # list all available targets
+make up
+make smoke
+```
+
+Then http://localhost:3000/feed — [`docs/demo.md`](./docs/demo.md).
+
+Other Make targets (`make help`):
+
+```bash
 make proto          # generate Go + Java stubs from proto/*.proto (do this before building Go)
 make build          # generate stubs, then build every Go/Java service
 make test           # run the full test suite (Go, Java, Python) — mirrors CI

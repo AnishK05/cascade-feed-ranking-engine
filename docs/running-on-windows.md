@@ -1,6 +1,11 @@
 # Running Cascade on Windows
 
-This project **runs on a Windows PC**. You do not need Ubuntu, Git Bash, or `make`.
+OS-agnostic runbook (Linux/macOS included): [`running.md`](running.md).
+Five-minute UI walkthrough: [`demo.md`](demo.md). Ports and env:
+[`ports-and-configuration.md`](ports-and-configuration.md).
+
+This page is the **Windows** path: Docker Desktop + PowerShell or cmd. You do not need
+Ubuntu, Git Bash, or `make`.
 
 The stack itself is Linux containers. On Windows those containers run inside
 **Docker Desktop**. You drive everything from **PowerShell or cmd** with:
